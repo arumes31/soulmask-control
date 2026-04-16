@@ -91,14 +91,14 @@ func (a *API) LogsHandler(w http.ResponseWriter, r *http.Request) {
 		log.Println("Upgrade error:", err)
 		return
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	reader, err := a.docker.Logs(r.Context(), "100")
 	if err != nil {
 		_ = conn.WriteMessage(websocket.TextMessage, []byte("Error reading logs: "+err.Error()))
 		return
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	go func() {
 		for {
