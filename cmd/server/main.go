@@ -47,19 +47,37 @@ func main() {
 	r.Use(middleware.LoggingMiddleware)
 
 	// Auth Routes
-	r.HandleFunc("/login", authenticator.LoginHandler).Methods("POST")
+	r.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" {
+			if authenticator.IsAuthenticated(r) {
+				http.Redirect(w, r, "/", http.StatusSeeOther)
+				return
+			}
+			http.ServeFile(w, r, "./static/login.html")
+			return
+		}
+		authenticator.LoginHandler(w, r)
+	}).Methods("GET", "POST")
+
 	r.HandleFunc("/logout", authenticator.LogoutHandler).Methods("POST")
+
+	// Dashboard Root
+	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if !authenticator.IsAuthenticated(r) {
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+		http.ServeFile(w, r, "./static/index.html")
+	}).Methods("GET")
 
 	// API Subrouter with Auth
 	apiRouter := r.PathPrefix("/api").Subrouter()
-	apiRouter.Use(middleware.AuthMiddleware(authenticator))
-
 	apiRouter.HandleFunc("/status", apiServer.StatusHandler).Methods("GET")
 	apiRouter.HandleFunc("/action/{action}", apiServer.ActionHandler).Methods("POST")
 	apiRouter.HandleFunc("/logs", apiServer.LogsHandler)
 
-	// Static files
-	r.PathPrefix("/").Handler(http.FileServer(http.Dir("./static")))
+	// Static files (for assets like CSS and JS)
+	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("./static"))))
 
 	srv := &http.Server{
 		Handler:      r,

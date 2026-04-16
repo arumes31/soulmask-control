@@ -4,9 +4,18 @@ import (
 	"context"
 	"io"
 
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 )
+
+type DockerClient interface {
+	ContainerInspect(ctx context.Context, containerID string) (types.ContainerJSON, error)
+	ContainerStart(ctx context.Context, containerID string, options container.StartOptions) error
+	ContainerStop(ctx context.Context, containerID string, options container.StopOptions) error
+	ContainerRestart(ctx context.Context, containerID string, options container.StopOptions) error
+	ContainerLogs(ctx context.Context, containerID string, options container.LogsOptions) (io.ReadCloser, error)
+}
 
 type ContainerInfo struct {
 	ID     string `json:"id"`
@@ -15,7 +24,7 @@ type ContainerInfo struct {
 }
 
 type Service struct {
-	cli    *client.Client
+	cli    DockerClient
 	target string
 }
 
@@ -25,6 +34,10 @@ func NewService(target string) (*Service, error) {
 		return nil, err
 	}
 	return &Service{cli: cli, target: target}, nil
+}
+
+func NewServiceWithClient(target string, cli DockerClient) *Service {
+	return &Service{cli: cli, target: target}
 }
 
 func (s *Service) GetStatus(ctx context.Context) (*ContainerInfo, error) {
