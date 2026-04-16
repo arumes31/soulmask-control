@@ -43,7 +43,9 @@ func TestAPIHandlers(t *testing.T) {
 		}
 
 		var info docker.ContainerInfo
-		json.NewDecoder(w.Body).Decode(&info)
+		if err := json.NewDecoder(w.Body).Decode(&info); err != nil {
+			t.Errorf("Failed to decode response: %v", err)
+		}
 		if info.Status != "running" {
 			t.Error("Expected status running")
 		}

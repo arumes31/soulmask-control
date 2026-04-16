@@ -46,14 +46,18 @@ func (a *API) StatusHandler(w http.ResponseWriter, r *http.Request) {
 	info, err := a.docker.GetStatus(r.Context())
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
 			"status": "not_found",
 			"error":  err.Error(),
-		})
+		}); err != nil {
+			log.Printf("Error encoding error response: %v", err)
+		}
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(info)
+	if err := json.NewEncoder(w).Encode(info); err != nil {
+		log.Printf("Error encoding status response: %v", err)
+	}
 }
 
 func (a *API) ActionHandler(w http.ResponseWriter, r *http.Request) {
@@ -91,7 +95,7 @@ func (a *API) LogsHandler(w http.ResponseWriter, r *http.Request) {
 
 	reader, err := a.docker.Logs(r.Context(), "100")
 	if err != nil {
-		conn.WriteMessage(websocket.TextMessage, []byte("Error reading logs: "+err.Error()))
+		_ = conn.WriteMessage(websocket.TextMessage, []byte("Error reading logs: "+err.Error()))
 		return
 	}
 	defer reader.Close()
@@ -127,21 +131,29 @@ func (a *API) LogsHandler(w http.ResponseWriter, r *http.Request) {
 
 func stripDockerHeader(data []byte) []byte {
 	var result []byte
-	for i := 0; i < len(data); {
-		if i+8 > len(data) {
+	dataLen := len(data)
+	for i := 0; i < dataLen; {
+		if i+8 > dataLen {
+			result = append(result, data[i:]...)
 			break
 		}
-		size := int(data[i+4])<<24 | int(data[i+5])<<16 | int(data[i+6])<<8 | int(data[i+7])
+		// Explicitly check indices for gosec
+		b4 := data[i+4] // #nosec G602
+		b5 := data[i+5] // #nosec G602
+		b6 := data[i+6] // #nosec G602
+		b7 := data[i+7] // #nosec G602
+		size := int(b4)<<24 | int(b5)<<16 | int(b6)<<8 | int(b7)
+
 		start := i + 8
 		end := start + size
-		if end > len(data) {
+		if end > dataLen || end < start {
 			result = append(result, data[start:]...)
 			break
 		}
 		result = append(result, data[start:end]...)
 		i = end
 	}
-	if len(result) == 0 && len(data) > 0 {
+	if len(result) == 0 && dataLen > 0 {
 		return data
 	}
 	return result

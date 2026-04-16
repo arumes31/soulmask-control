@@ -71,7 +71,9 @@ func TestService(t *testing.T) {
 			called = true
 			return nil
 		}
-		svc.Start(context.Background())
+		if err := svc.Start(context.Background()); err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
 		if !called {
 			t.Error("ContainerStart was not called")
 		}

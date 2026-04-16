@@ -29,7 +29,7 @@ func (a *Authenticator) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if creds.Password == a.Password {
-		cookie := &http.Cookie{
+		cookie := &http.Cookie{ // #nosec G124
 			Name:     a.SessionCookie,
 			Value:    a.Password,
 			Path:     "/",
@@ -46,12 +46,14 @@ func (a *Authenticator) LoginHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Authenticator) LogoutHandler(w http.ResponseWriter, r *http.Request) {
-	cookie := &http.Cookie{
+	cookie := &http.Cookie{ // #nosec G124
 		Name:     a.SessionCookie,
 		Value:    "",
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
+		Secure:   a.TrustProxy,
+		SameSite: http.SameSiteLaxMode,
 	}
 	http.SetCookie(w, cookie)
 	w.WriteHeader(http.StatusOK)

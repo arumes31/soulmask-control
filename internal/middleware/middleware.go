@@ -27,7 +27,7 @@ func IPMiddleware(trustProxy bool) func(http.Handler) http.Handler {
 
 func LoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
+		log.Printf("%q %q %q", r.RemoteAddr, r.Method, r.URL.Path) // #nosec G706
 		next.ServeHTTP(w, r)
 	})
 }
