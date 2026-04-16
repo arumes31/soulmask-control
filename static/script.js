@@ -36,14 +36,57 @@ async function updateStatus() {
             btnStop.classList.add('opacity-50', 'cursor-not-allowed');
         }
 
-        document.getElementById('container-image').textContent = data.image || 'N/A';
         document.getElementById('container-id').textContent = data.id || '--------';
+        document.getElementById('container-image').textContent = data.image || 'N/A';
     } catch (e) {
         console.error('Status fetch error', e);
     }
 }
 
-async function action(name) {
+function confirmAction(type) {
+    const modal = document.getElementById('modal-container');
+    const title = document.getElementById('modal-title');
+    const desc = document.getElementById('modal-desc');
+    const icon = document.getElementById('modal-icon');
+    const confirmBtn = document.getElementById('modal-confirm-btn');
+    
+    let colorClass = "";
+    let iconSvg = "";
+    
+    switch(type) {
+        case 'start':
+            title.textContent = "Start Instance";
+            desc.textContent = "Initialize the Soulmask container and bring systems online.";
+            colorClass = "bg-green-600";
+            iconSvg = `<svg class="w-8 h-8 text-green-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd" /></svg>`;
+            break;
+        case 'restart':
+            title.textContent = "Restart Instance";
+            desc.textContent = "Recycle the active process. This will temporarily drop all connections.";
+            colorClass = "bg-blue-600";
+            iconSvg = `<svg class="w-8 h-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>`;
+            break;
+        case 'stop':
+            title.textContent = "Stop Instance";
+            desc.textContent = "Terminate the container process. All active sessions will be killed.";
+            colorClass = "bg-red-600";
+            iconSvg = `<svg class="w-8 h-8 text-red-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clip-rule="evenodd" /></svg>`;
+            break;
+    }
+    
+    icon.innerHTML = iconSvg;
+    confirmBtn.className = `flex-1 px-4 py-3 rounded-xl text-xs font-bold transition-all shadow-lg active:scale-95 uppercase tracking-widest text-white ${colorClass}`;
+    confirmBtn.onclick = () => executeAction(type);
+    
+    modal.classList.remove('hidden');
+}
+
+function closeModal() {
+    document.getElementById('modal-container').classList.add('hidden');
+}
+
+async function executeAction(name) {
+    closeModal();
     try {
         const response = await fetch(`/api/action/${name}`, { method: 'POST' });
         if (!response.ok) {

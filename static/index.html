@@ -32,6 +32,14 @@
         ::-webkit-scrollbar-track { background: #020617; }
         ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: #334155; }
+        
+        .animate-zoom {
+            animation: zoom 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        @keyframes zoom {
+            from { transform: scale(0.95); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
     </style>
 </head>
 <body class="min-h-screen font-sans">
@@ -95,30 +103,30 @@
                 <div class="glass-panel p-6 rounded-3xl">
                     <h2 class="text-sm font-bold text-gray-400 uppercase tracking-widest mb-6">Operations</h2>
                     <div class="grid grid-cols-1 gap-3">
-                        <button onclick="action('start')" id="btn-start" class="group flex items-center justify-between p-4 bg-gray-800/20 hover:bg-green-600/10 rounded-2xl transition-all border border-transparent hover:border-green-500/20">
+                        <button onclick="confirmAction('start')" id="btn-start" class="group flex items-center justify-between p-4 bg-gray-800/20 hover:bg-green-600/10 rounded-2xl transition-all border border-transparent hover:border-green-500/20">
                             <div class="flex items-center gap-3">
                                 <div class="w-8 h-8 rounded-lg bg-green-500/10 text-green-500 flex items-center justify-center group-hover:scale-110 transition-transform">
                                     <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd" /></svg>
                                 </div>
-                                <span class="text-sm font-bold text-gray-400">Wake Instance</span>
+                                <span class="text-sm font-bold text-gray-400">Start</span>
                             </div>
                         </button>
 
-                        <button onclick="action('restart')" id="btn-restart" class="group flex items-center justify-between p-4 bg-gray-800/20 hover:bg-blue-600/10 rounded-2xl transition-all border border-transparent hover:border-blue-500/20">
+                        <button onclick="confirmAction('restart')" id="btn-restart" class="group flex items-center justify-between p-4 bg-gray-800/20 hover:bg-blue-600/10 rounded-2xl transition-all border border-transparent hover:border-blue-500/20">
                             <div class="flex items-center gap-3">
                                 <div class="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-500 flex items-center justify-center group-hover:rotate-180 transition-transform duration-500">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                                 </div>
-                                <span class="text-sm font-bold text-gray-400">Recycle Process</span>
+                                <span class="text-sm font-bold text-gray-400">Restart</span>
                             </div>
                         </button>
 
-                        <button onclick="action('stop')" id="btn-stop" class="group flex items-center justify-between p-4 bg-gray-800/20 hover:bg-red-600/10 rounded-2xl transition-all border border-transparent hover:border-red-500/20">
+                        <button onclick="confirmAction('stop')" id="btn-stop" class="group flex items-center justify-between p-4 bg-gray-800/20 hover:bg-red-600/10 rounded-2xl transition-all border border-transparent hover:border-red-500/20">
                             <div class="flex items-center gap-3">
                                 <div class="w-8 h-8 rounded-lg bg-red-500/10 text-red-500 flex items-center justify-center group-hover:scale-110 transition-transform">
                                     <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clip-rule="evenodd" /></svg>
                                 </div>
-                                <span class="text-sm font-bold text-gray-400">Kill Instance</span>
+                                <span class="text-sm font-bold text-gray-400">Stop</span>
                             </div>
                         </button>
                     </div>
@@ -145,6 +153,22 @@
                 </div>
             </div>
         </main>
+    </div>
+
+    <!-- Modern Confirmation Modal -->
+    <div id="modal-container" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+        <div class="glass-panel max-w-sm w-full p-8 rounded-3xl shadow-2xl border border-gray-700 animate-zoom">
+            <div id="modal-icon" class="w-16 h-16 rounded-2xl mb-6 mx-auto flex items-center justify-center bg-gray-800">
+                <!-- Icon injected by JS -->
+            </div>
+            <h3 id="modal-title" class="text-xl font-bold text-center mb-2 tracking-tight uppercase">Confirm Action</h3>
+            <p id="modal-desc" class="text-sm text-gray-500 text-center mb-8 uppercase tracking-widest font-mono text-[10px]">Are you sure you want to perform this operation?</p>
+            
+            <div class="flex gap-3">
+                <button onclick="closeModal()" class="flex-1 px-4 py-3 rounded-xl bg-gray-800 hover:bg-gray-700 text-xs font-bold transition-colors uppercase tracking-widest">Cancel</button>
+                <button id="modal-confirm-btn" class="flex-1 px-4 py-3 rounded-xl text-xs font-bold transition-all shadow-lg active:scale-95 uppercase tracking-widest text-white">Confirm</button>
+            </div>
+        </div>
     </div>
 
     <script src="/static/script.js"></script>
