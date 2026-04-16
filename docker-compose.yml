@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  soulmask-control:
+    build: .
+    container_name: soulmask-control
+    ports:
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - TARGET_CONTAINER=soulmask-server
+      - ADMIN_PASSWORD=admin
+      - TRUST_PROXY=true
+      - ALLOWED_ORIGINS=http://localhost:8080,http://localhost:80,https://yourdomain.com
+    networks:
+      - soulmask-network
+      - proxy-tier # Optional network for reverse proxies
+
+  # Dummy server for testing the management interface
+  soulmask-server:
+    image: alpine
+    container_name: soulmask-server
+    command: sh -c "while true; do echo \"[$(date)] Server heartbeat...\"; sleep 10; done"
+    networks:
+      - soulmask-network
+
+networks:
+  soulmask-network:
+    driver: bridge
+  proxy-tier:
+    external: true
+    name: proxy-tier # Ensure this network exists or remove if not using
