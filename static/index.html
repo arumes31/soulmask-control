@@ -17,14 +17,95 @@
         }
     </style>
 </head>
-<body class="bg-gray-100 min-h-screen">
-    <div id="login-container" class="flex items-center justify-center min-h-screen">
-        <div class="bg-white p-8 rounded shadow-md w-full max-w-md">
-            <h1 class="text-2xl font-bold mb-6 text-center">Soulmask Control</h1>
-            <input type="password" id="password" placeholder="Admin Password" class="w-full p-2 border border-gray-300 rounded mb-4">
-            <button onclick="login()" class="w-full bg-blue-600 text-white p-2 rounded hover:bg-blue-700 transition">Login</button>
+<body class="bg-gray-900 min-h-screen text-gray-100 font-sans">
+    <div id="login-container" class="flex flex-col items-center justify-center min-h-screen overflow-hidden relative">
+        <!-- Animated Background Particles -->
+        <div class="absolute inset-0 z-0 opacity-20 pointer-events-none">
+            <div class="smoke-particle" style="top: 20%; left: 10%;"></div>
+            <div class="smoke-particle" style="top: 50%; left: 80%;"></div>
+            <div class="smoke-particle" style="top: 80%; left: 30%;"></div>
+        </div>
+
+        <div class="z-10 flex flex-col items-center scale-75 md:scale-100">
+            <!-- Animated Skull SVG -->
+            <div class="skull-wrapper mb-8">
+                <svg width="200" height="240" viewBox="0 0 200 240" fill="none" xmlns="http://www.w3.org/2000/svg" class="floating-skull">
+                    <!-- Main Skull Shape -->
+                    <path d="M100 20C60 20 20 50 20 100C20 130 35 150 50 165C50 165 50 190 60 210C65 220 135 220 140 210C150 190 150 165 150 165C165 150 180 130 180 100C180 50 140 20 100 20Z" fill="#E5E7EB" />
+                    <!-- Eye Sockets -->
+                    <circle cx="65" cy="100" r="22" fill="#111827" class="eye-socket" />
+                    <circle cx="135" cy="100" r="22" fill="#111827" class="eye-socket" />
+                    <!-- Glowing Eyes -->
+                    <circle cx="65" cy="100" r="8" fill="#EF4444" class="glowing-eye" />
+                    <circle cx="135" cy="100" r="8" fill="#EF4444" class="glowing-eye" />
+                    <!-- Nose -->
+                    <path d="M100 130L85 155H115L100 130Z" fill="#111827" />
+                    <!-- Teeth/Mouth -->
+                    <rect x="75" y="180" width="8" height="25" rx="4" fill="#111827" opacity="0.4" />
+                    <rect x="90" y="180" width="8" height="30" rx="4" fill="#111827" opacity="0.4" />
+                    <rect x="105" y="180" width="8" height="30" rx="4" fill="#111827" opacity="0.4" />
+                    <rect x="120" y="180" width="8" height="25" rx="4" fill="#111827" opacity="0.4" />
+                </svg>
+            </div>
+
+            <h1 class="text-4xl font-black mb-8 tracking-widest uppercase text-red-600 shadow-sm skull-text">Soulmask Control</h1>
+            
+            <div id="login-box" class="w-full max-w-sm px-4">
+                <input type="password" id="password" placeholder="ENTER ACCESS CODE" 
+                    class="w-full bg-gray-800 border-2 border-red-900 focus:border-red-600 text-center p-4 rounded-lg mb-4 outline-none transition-all tracking-[0.5em] placeholder:tracking-normal placeholder:text-gray-600 font-mono">
+                <button onclick="login()" 
+                    class="w-full bg-red-900 hover:bg-red-700 text-white font-bold p-4 rounded-lg transition-all transform active:scale-95 border-b-4 border-red-950 hover:border-red-900 tracking-widest">
+                    AUTHENTICATE
+                </button>
+            </div>
         </div>
     </div>
+
+    <style>
+        .floating-skull {
+            animation: float 4s ease-in-out infinite;
+            filter: drop-shadow(0 0 15px rgba(239, 68, 68, 0.2));
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-20px); }
+        }
+        .glowing-eye {
+            animation: pulse 2s ease-in-out infinite;
+            filter: blur(2px);
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 0.5; transform: scale(0.8); fill: #EF4444; }
+            50% { opacity: 1; transform: scale(1.2); fill: #FF0000; filter: blur(4px) drop-shadow(0 0 10px #FF0000); }
+        }
+        .skull-text {
+            text-shadow: 0 0 10px rgba(220, 38, 38, 0.5);
+            letter-spacing: 0.3em;
+        }
+        .smoke-particle {
+            position: absolute;
+            width: 150px;
+            height: 150px;
+            background: radial-gradient(circle, rgba(239, 68, 68, 0.1) 0%, rgba(0,0,0,0) 70%);
+            border-radius: 50%;
+            animation: wander 20s infinite linear;
+        }
+        @keyframes wander {
+            0% { transform: translate(0, 0) scale(1); }
+            33% { transform: translate(100px, 50px) scale(1.5); }
+            66% { transform: translate(-50px, 100px) scale(0.8); }
+            100% { transform: translate(0, 0) scale(1); }
+        }
+        .shake {
+            animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+        }
+        @keyframes shake {
+            10%, 90% { transform: translate3d(-1px, 0, 0); }
+            20%, 80% { transform: translate3d(2px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+            40%, 60% { transform: translate3d(4px, 0, 0); }
+        }
+    </style>
 
     <div id="dashboard" class="hidden container mx-auto p-4 max-w-4xl">
         <div class="flex justify-between items-center mb-6">

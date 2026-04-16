@@ -2,6 +2,7 @@ let ws;
 let reconnectInterval = 3000;
 
 function showDashboard() {
+    document.body.className = "bg-gray-100 min-h-screen text-gray-900 font-sans";
     document.getElementById('login-container').classList.add('hidden');
     document.getElementById('dashboard').classList.remove('hidden');
     updateStatus();
@@ -10,13 +11,17 @@ function showDashboard() {
 }
 
 function showLogin() {
+    document.body.className = "bg-gray-900 min-h-screen text-gray-100 font-sans";
     document.getElementById('login-container').classList.remove('hidden');
     document.getElementById('dashboard').classList.add('hidden');
     if (ws) ws.close();
 }
 
 async function login() {
-    const password = document.getElementById('password').value;
+    const passwordEl = document.getElementById('password');
+    const loginBox = document.getElementById('login-box');
+    const password = passwordEl.value;
+    
     const response = await fetch('/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -26,9 +31,23 @@ async function login() {
     if (response.ok) {
         showDashboard();
     } else {
-        alert('Login failed');
+        // Shake animation on failure
+        loginBox.classList.add('shake');
+        setTimeout(() => loginBox.classList.remove('shake'), 500);
+        passwordEl.value = '';
+        passwordEl.placeholder = "INVALID CODE";
+        setTimeout(() => {
+            passwordEl.placeholder = "ENTER ACCESS CODE";
+        }, 2000);
     }
 }
+
+// Add Enter key support
+document.getElementById('password').addEventListener('keypress', function (e) {
+    if (e.key === 'Enter') {
+        login();
+    }
+});
 
 async function logout() {
     await fetch('/logout', { method: 'POST' });
