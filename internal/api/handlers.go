@@ -1,10 +1,11 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
-	"io"
 	"log"
 	"net/http"
+	"time"
 
 	"soulmask-control/internal/docker"
 
@@ -44,35 +45,26 @@ func (a *API) checkOrigin(r *http.Request) bool {
 
 func (a *API) StatusHandler(w http.ResponseWriter, r *http.Request) {
 	info, err := a.docker.GetStatus(r.Context())
+	w.Header().Set("Content-Type", "application/json")
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(map[string]interface{}{
-			"status": "not_found",
-			"error":  err.Error(),
-		}); err != nil {
-			log.Printf("Error encoding error response: %v", err)
-		}
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": err.Error()})
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(info); err != nil {
-		log.Printf("Error encoding status response: %v", err)
-	}
+	_ = json.NewEncoder(w).Encode(info)
 }
 
 func (a *API) ActionHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	action := vars["action"]
-	ctx := r.Context()
-
+	action := mux.Vars(r)["action"]
 	var err error
+
 	switch action {
 	case "start":
-		err = a.docker.Start(ctx)
+		err = a.docker.Start(r.Context())
 	case "stop":
-		err = a.docker.Stop(ctx)
+		err = a.docker.Stop(r.Context())
 	case "restart":
-		err = a.docker.Restart(ctx)
+		err = a.docker.Restart(r.Context())
 	default:
 		http.Error(w, "Invalid action", http.StatusBadRequest)
 		return
@@ -86,10 +78,12 @@ func (a *API) ActionHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) CheckUpdateHandler(w http.ResponseWriter, r *http.Request) {
+	// Use Background context for the manual trigger to avoid premature cancellation
 	go func() {
-		ctx := r.Context()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
 		if err := a.docker.CheckAndUpdate(ctx); err != nil {
-			log.Printf("Manual update check failed: %v", err)
+			log.Printf("[API] Manual update check failed: %v", err)
 		}
 	}()
 	w.WriteHeader(http.StatusAccepted)
@@ -98,22 +92,22 @@ func (a *API) CheckUpdateHandler(w http.ResponseWriter, r *http.Request) {
 func (a *API) LogsHandler(w http.ResponseWriter, r *http.Request) {
 	conn, err := a.upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Println("Upgrade error:", err)
+		log.Printf("[API] WebSocket upgrade failed: %v", err)
 		return
 	}
-	defer func() { _ = conn.Close() }()
+	defer conn.Close()
 
 	reader, err := a.docker.Logs(r.Context(), "100")
 	if err != nil {
 		_ = conn.WriteMessage(websocket.TextMessage, []byte("Error reading logs: "+err.Error()))
 		return
 	}
-	defer func() { _ = reader.Close() }()
+	defer reader.Close()
 
+	// Drain reads to handle client closes
 	go func() {
 		for {
-			_, _, err := conn.ReadMessage()
-			if err != nil {
+			if _, _, err := conn.ReadMessage(); err != nil {
 				return
 			}
 		}
@@ -122,49 +116,40 @@ func (a *API) LogsHandler(w http.ResponseWriter, r *http.Request) {
 	buf := make([]byte, 8192)
 	for {
 		n, err := reader.Read(buf)
-		if n > 0 {
-			if n > 8 {
-				cleanLog := stripDockerHeader(buf[:n])
-				if err := conn.WriteMessage(websocket.TextMessage, cleanLog); err != nil {
-					return
-				}
+		if n > 8 {
+			cleanLog := stripDockerHeader(buf[:n])
+			if err := conn.WriteMessage(websocket.TextMessage, cleanLog); err != nil {
+				return
 			}
 		}
 		if err != nil {
-			if err != io.EOF {
-				log.Println("Reader error:", err)
-			}
 			return
 		}
 	}
 }
 
 func stripDockerHeader(data []byte) []byte {
+	if len(data) < 8 {
+		return data
+	}
 	var result []byte
-	dataLen := len(data)
-	for i := 0; i < dataLen; {
-		if i+8 > dataLen {
+	for i := 0; i < len(data); {
+		if i+8 > len(data) {
 			result = append(result, data[i:]...)
 			break
 		}
-		// Explicitly check indices for gosec
-		b4 := data[i+4] // #nosec G602
-		b5 := data[i+5] // #nosec G602
-		b6 := data[i+6] // #nosec G602
-		b7 := data[i+7] // #nosec G602
-		size := int(b4)<<24 | int(b5)<<16 | int(b6)<<8 | int(b7)
 
+		// Docker header: [stream_type, 0, 0, 0, size1, size2, size3, size4]
+		size := int(data[i+4])<<24 | int(data[i+5])<<16 | int(data[i+6])<<8 | int(data[i+7])
 		start := i + 8
 		end := start + size
-		if end > dataLen || end < start {
+
+		if end > len(data) {
 			result = append(result, data[start:]...)
 			break
 		}
 		result = append(result, data[start:end]...)
 		i = end
-	}
-	if len(result) == 0 && dataLen > 0 {
-		return data
 	}
 	return result
 }
