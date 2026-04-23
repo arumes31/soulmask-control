@@ -167,9 +167,9 @@ func (s *Service) StartLatencyMonitor(ctx context.Context) {
 	measure := func(host string) string {
 		var cmd *exec.Cmd
 		if runtime.GOOS == "windows" {
-			cmd = exec.Command("ping", "-n", "1", "-w", "2000", host)
+			cmd = exec.Command("ping", "-n", "1", "-w", "2000", host) // #nosec G204
 		} else {
-			cmd = exec.Command("ping", "-c", "1", "-W", "2", host)
+			cmd = exec.Command("ping", "-c", "1", "-W", "2", host) // #nosec G204
 		}
 
 		start := time.Now()
