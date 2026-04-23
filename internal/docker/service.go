@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
+	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -164,12 +165,17 @@ func (s *Service) StartLatencyMonitor(ctx context.Context) {
 	defer ticker.Stop()
 
 	measure := func(host string) string {
+		var cmd *exec.Cmd
+		if runtime.GOOS == "windows" {
+			cmd = exec.Command("ping", "-n", "1", "-w", "2000", host)
+		} else {
+			cmd = exec.Command("ping", "-c", "1", "-W", "2", host)
+		}
+
 		start := time.Now()
-		conn, err := net.DialTimeout("tcp", host+":53", 2*time.Second)
-		if err != nil {
+		if err := cmd.Run(); err != nil {
 			return "Err"
 		}
-		_ = conn.Close()
 		return fmt.Sprintf("%dms", time.Since(start).Milliseconds())
 	}
 

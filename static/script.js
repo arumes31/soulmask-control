@@ -2,6 +2,68 @@ let ws;
 let reconnectInterval = 3000;
 let pendingTimerInterval = null;
 
+// Latency Graph
+let latencyChart = null;
+const MAX_LATENCY_HISTORY = 30;
+const latencyHistory = {
+    labels: [],
+    cloudflare: [],
+    google: []
+};
+
+function initLatencyChart() {
+    const canvas = document.getElementById('latency-chart');
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    latencyChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: latencyHistory.labels,
+            datasets: [
+                {
+                    label: 'Cloudflare',
+                    data: latencyHistory.cloudflare,
+                    borderColor: '#3b82f6',
+                    backgroundColor: 'rgba(59, 130, 246, 0.05)',
+                    borderWidth: 1.5,
+                    pointRadius: 0,
+                    tension: 0.4,
+                    fill: true
+                },
+                {
+                    label: 'Google',
+                    data: latencyHistory.google,
+                    borderColor: '#f97316',
+                    backgroundColor: 'rgba(249, 115, 22, 0.05)',
+                    borderWidth: 1.5,
+                    pointRadius: 0,
+                    tension: 0.4,
+                    fill: true
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: { duration: 0 },
+            plugins: {
+                legend: { display: false },
+                tooltip: { enabled: false }
+            },
+            scales: {
+                x: { display: false },
+                y: {
+                    beginAtZero: true,
+                    suggestedMax: 100,
+                    grid: { color: 'rgba(255, 255, 255, 0.03)', drawTicks: false },
+                    ticks: { color: '#475569', font: { size: 7 }, padding: 5, stepSize: 50 }
+                }
+            }
+        }
+    });
+}
+
 async function logout() {
     await fetch('/logout', { method: 'POST' });
     window.location.href = '/login';
@@ -125,19 +187,40 @@ async function updateStatus() {
             const cfEl = document.getElementById('lat-cf');
             const googEl = document.getElementById('lat-goog');
             
-            cfEl.textContent = l.cloudflare;
-            googEl.textContent = l.google;
+            if (cfEl && googEl) {
+                cfEl.textContent = l.cloudflare;
+                googEl.textContent = l.google;
+                
+                const getLatColor = (val) => {
+                    if (val === 'Err') return 'text-red-500';
+                    const ms = parseInt(val);
+                    if (ms > 200) return 'text-red-400';
+                    if (ms > 100) return 'text-yellow-400';
+                    return 'text-green-400';
+                };
+                
+                cfEl.className = `text-xs font-mono font-black ${getLatColor(l.cloudflare)}`;
+                googEl.className = `text-xs font-mono font-black ${getLatColor(l.google)}`;
+            }
+
+            // Update Chart
+            if (!latencyChart) initLatencyChart();
             
-            const getLatColor = (val) => {
-                if (val === 'Err') return 'text-red-500';
-                const ms = parseInt(val);
-                if (ms > 200) return 'text-red-400';
-                if (ms > 100) return 'text-yellow-400';
-                return 'text-green-400';
-            };
-            
-            cfEl.className = `text-xs font-mono font-black ${getLatColor(l.cloudflare)}`;
-            googEl.className = `text-xs font-mono font-black ${getLatColor(l.google)}`;
+            const cfVal = parseInt(l.cloudflare) || 0;
+            const googVal = parseInt(l.google) || 0;
+            const now = new Date().toLocaleTimeString();
+
+            latencyHistory.labels.push(now);
+            latencyHistory.cloudflare.push(cfVal);
+            latencyHistory.google.push(googVal);
+
+            if (latencyHistory.labels.length > MAX_LATENCY_HISTORY) {
+                latencyHistory.labels.shift();
+                latencyHistory.cloudflare.shift();
+                latencyHistory.google.shift();
+            }
+
+            if (latencyChart) latencyChart.update();
         }
 
         if (data.updateStatus) {
