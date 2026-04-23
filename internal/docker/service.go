@@ -275,12 +275,26 @@ func (s *Service) GetStatus(ctx context.Context) (*ContainerInfo, error) {
 }
 
 func (s *Service) getLatestPatch(ctx context.Context) (*PatchInfo, error) {
-	if s.steamAppID == "" {
+	patch, err := s.fetchNews(ctx, s.steamAppID)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Fallback for Soulmask Dedicated Server tool (2886870) to Main Game (2401390)
+	if patch == nil && s.steamAppID == "2886870" {
+		log.Printf("[SteamAPI] No news for tool 2886870, falling back to main game 2401390")
+		return s.fetchNews(ctx, "2401390")
+	}
+	
+	return patch, nil
+}
+
+func (s *Service) fetchNews(ctx context.Context, appID string) (*PatchInfo, error) {
+	if appID == "" {
 		return nil, nil
 	}
 
-	// Try both GetNewsForApp versions if one fails or returns empty
-	url := fmt.Sprintf("https://api.steampowered.com/ISteamNews/GetNewsForApp/v0002/?appid=%s&count=5&maxlength=500&format=json", s.steamAppID)
+	url := fmt.Sprintf("https://api.steampowered.com/ISteamNews/GetNewsForApp/v0002/?appid=%s&count=5&maxlength=500&format=json", appID)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -289,7 +303,7 @@ func (s *Service) getLatestPatch(ctx context.Context) (*PatchInfo, error) {
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("[SteamAPI] Request failed: %v", err)
+		log.Printf("[SteamAPI] Request failed for %s: %v", appID, err)
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -307,7 +321,7 @@ func (s *Service) getLatestPatch(ctx context.Context) (*PatchInfo, error) {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		log.Printf("[SteamAPI] Failed to decode news: %v", err)
+		log.Printf("[SteamAPI] Failed to decode news for %s: %v", appID, err)
 		return nil, err
 	}
 
@@ -316,7 +330,6 @@ func (s *Service) getLatestPatch(ctx context.Context) (*PatchInfo, error) {
 		return nil, nil
 	}
 
-	// Prefer "Patch Notes" or "Update" labels if available, otherwise take the first
 	var bestItem *PatchInfo
 	for _, it := range items {
 		p := &PatchInfo{
@@ -328,7 +341,6 @@ func (s *Service) getLatestPatch(ctx context.Context) (*PatchInfo, error) {
 		if bestItem == nil {
 			bestItem = p
 		}
-		// If we find something that looks like actual patch notes, prefer it
 		lowerTitle := strings.ToLower(it.Title)
 		if strings.Contains(lowerTitle, "patch") || strings.Contains(lowerTitle, "update") || strings.Contains(lowerTitle, "hotfix") {
 			bestItem = p
