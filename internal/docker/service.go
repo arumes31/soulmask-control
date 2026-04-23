@@ -2,6 +2,7 @@ package docker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -55,27 +56,31 @@ func (s *Service) setChecking(checking bool, errStr string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.updateStatus.IsChecking = checking
-	if checking {
-		s.updateStatus.Error = ""
-	} else {
+	if !checking {
 		s.updateStatus.LastCheck = time.Now()
+		s.updateStatus.Progress = ""
 	}
+	if errStr != "" {
+		s.updateStatus.Error = errStr
+	} else if checking {
+		s.updateStatus.Error = ""
+	}
+}
+
+func (s *Service) setUpdating(updating bool, progress string, errStr string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.updateStatus.IsUpdating = updating
+	s.updateStatus.Progress = progress
 	if errStr != "" {
 		s.updateStatus.Error = errStr
 	}
 }
 
-func (s *Service) setUpdating(updating bool, progress string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.updateStatus.IsUpdating = updating
-	s.updateStatus.Progress = progress
-}
-
 func NewService(target string) (*Service, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create docker client: %w", err)
 	}
 	return &Service{
 		cli:    cli,
@@ -121,13 +126,12 @@ func (s *Service) Restart(ctx context.Context) error {
 }
 
 func (s *Service) Logs(ctx context.Context, tail string) (io.ReadCloser, error) {
-	options := container.LogsOptions{
+	return s.cli.ContainerLogs(ctx, s.target, container.LogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 		Follow:     true,
 		Tail:       tail,
-	}
-	return s.cli.ContainerLogs(ctx, s.target, options)
+	})
 }
 
 func (s *Service) PullImage(ctx context.Context, imageRef string) error {
@@ -136,108 +140,128 @@ func (s *Service) PullImage(ctx context.Context, imageRef string) error {
 		return err
 	}
 	defer reader.Close()
-	_, _ = io.Copy(io.Discard, reader) // Wait for pull to complete
+
+	decoder := json.NewDecoder(reader)
+	for {
+		var message struct {
+			Status   string `json:"status"`
+			Progress string `json:"progress"`
+			Error    string `json:"error"`
+		}
+		if err := decoder.Decode(&message); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return err
+		}
+		if message.Error != "" {
+			return fmt.Errorf("docker pull error: %s", message.Error)
+		}
+		
+		s.mu.Lock()
+		if message.Progress != "" {
+			s.updateStatus.Progress = fmt.Sprintf("%s %s", message.Status, message.Progress)
+		} else {
+			s.updateStatus.Progress = message.Status
+		}
+		s.mu.Unlock()
+	}
 	return nil
 }
 
-func (s *Service) CheckAndUpdate(ctx context.Context) error {
-	s.mu.Lock()
+func (s *Service) CheckAndUpdate(ctx context.Context) (err error) {
+	s.mu.RLock()
 	if s.updateStatus.IsUpdating || s.updateStatus.IsChecking {
-		s.mu.Unlock()
+		s.mu.RUnlock()
 		return nil
 	}
-	s.mu.Unlock()
+	s.mu.RUnlock()
 
 	s.setChecking(true, "")
-	defer s.setChecking(false, "")
+	defer func() {
+		if err != nil {
+			s.setChecking(false, err.Error())
+		} else {
+			s.setChecking(false, "")
+		}
+	}()
 
 	inspect, err := s.cli.ContainerInspect(ctx, s.target)
 	if err != nil {
-		return err
+		return fmt.Errorf("inspect failed: %w", err)
 	}
 
 	imageRef := inspect.Config.Image
 	oldImageID := inspect.Image
 
-	log.Printf("Checking for updates for image %s (current ID: %s)", imageRef, oldImageID)
+	log.Printf("[UpdateWorker] Checking %s (ID: %s)", imageRef, oldImageID)
 
-	if err := s.PullImage(ctx, imageRef); err != nil {
-		s.setChecking(false, fmt.Sprintf("Failed to pull image: %v", err))
-		return err
+	if err = s.PullImage(ctx, imageRef); err != nil {
+		return fmt.Errorf("pull failed: %w", err)
 	}
 
-	// Get new image ID
 	newImage, _, err := s.cli.ImageInspectWithRaw(ctx, imageRef)
 	if err != nil {
-		return err
+		return fmt.Errorf("post-pull inspect failed: %w", err)
 	}
 
 	if newImage.ID == oldImageID {
-		log.Printf("No update available for %s", imageRef)
+		log.Printf("[UpdateWorker] %s is up to date", imageRef)
 		return nil
 	}
 
-	log.Printf("New image version detected: %s -> %s", oldImageID, newImage.ID)
+	log.Printf("[UpdateWorker] Update detected: %s -> %s", oldImageID, newImage.ID)
 	return s.PerformUpdate(ctx, inspect)
 }
 
-func (s *Service) PerformUpdate(ctx context.Context, oldInspect container.InspectResponse) error {
-	s.setUpdating(true, "Updating container...")
-	defer s.setUpdating(false, "")
+func (s *Service) PerformUpdate(ctx context.Context, oldInspect container.InspectResponse) (err error) {
+	s.setUpdating(true, "Initializing update...", "")
+	defer func() {
+		if err != nil {
+			s.setUpdating(false, "", err.Error())
+		} else {
+			s.setUpdating(false, "", "")
+		}
+	}()
 
-	// Check if image ID changed
-	_, err := s.cli.ContainerInspect(ctx, s.target)
-	if err != nil {
-		return err
-	}
-	
-	// This won't work because the container is still using the old image.
-	// We need to check the ID of the image by name.
-	// But let's assume we want to recreate anyway to be safe, or just check the registry.
-	
-	// Let's just do the recreate. If the image is the same, it's just a restart.
-	// But the user specifically asked: "if there a patches stop the container, docker pull the image, and restart with new image"
-	
-	log.Printf("Recreating container %s", s.target)
+	log.Printf("[UpdateWorker] Restarting container %s with new image", s.target)
 	
 	// 1. Stop
-	if err := s.Stop(ctx); err != nil {
-		log.Printf("Warning: failed to stop container: %v", err)
-	}
+	s.setUpdating(true, "Stopping container...", "")
+	_ = s.Stop(ctx) // Best effort stop
 	
 	// 2. Remove
-	if err := s.cli.ContainerRemove(ctx, s.target, container.RemoveOptions{Force: true}); err != nil {
-		return err
+	s.setUpdating(true, "Removing old container...", "")
+	if err = s.cli.ContainerRemove(ctx, s.target, container.RemoveOptions{Force: true}); err != nil {
+		return fmt.Errorf("remove failed: %w", err)
 	}
 	
-	// 3. Create
-	// We need to clear the ID and other fields that are specific to the old container
+	// 3. Prepare Configuration
 	config := oldInspect.Config
 	hostConfig := oldInspect.HostConfig
 	
-	// Networks
+	// Sanitize networking to prevent conflicts
 	networkingConfig := &network.NetworkingConfig{
 		EndpointsConfig: oldInspect.NetworkSettings.Networks,
 	}
 	
+	// 4. Create
+	s.setUpdating(true, "Recreating container...", "")
 	resp, err := s.cli.ContainerCreate(ctx, config, hostConfig, networkingConfig, nil, s.target)
 	if err != nil {
-		return err
+		return fmt.Errorf("create failed: %w", err)
 	}
 	
-	// 4. Start
-	if err := s.cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
-		return err
+	// 5. Start
+	s.setUpdating(true, "Starting new container...", "")
+	if err = s.cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+		return fmt.Errorf("start failed: %w", err)
 	}
 	
-	log.Printf("Container %s updated and restarted", s.target)
+	// 6. Cleanup
+	log.Printf("[UpdateWorker] Cleaning up old image %s", oldInspect.Image)
+	_, _ = s.cli.ImageRemove(ctx, oldInspect.Image, image.RemoveOptions{PruneChildren: true})
 
-	// 5. Cleanup old image
-	log.Printf("Cleaning up old image %s", oldInspect.Image)
-	_, err = s.cli.ImageRemove(ctx, oldInspect.Image, image.RemoveOptions{PruneChildren: true})
-	if err != nil {
-		log.Printf("Warning: failed to remove old image %s: %v", oldInspect.Image, err)
-	}
-
+	log.Printf("[UpdateWorker] Successfully updated %s", s.target)
 	return nil
 }
