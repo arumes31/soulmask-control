@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
@@ -39,6 +40,9 @@ func main() {
 	authenticator := auth.NewAuthenticator(adminPassword, trustProxy)
 	apiServer := api.NewAPI(dockerService, allowedOrigins)
 
+	// Start update worker
+	startUpdateWorker(dockerService)
+
 	// Router setup
 	r := mux.NewRouter()
 
@@ -75,6 +79,7 @@ func main() {
 	apiRouter.HandleFunc("/status", apiServer.StatusHandler).Methods("GET")
 	apiRouter.HandleFunc("/action/{action}", apiServer.ActionHandler).Methods("POST")
 	apiRouter.HandleFunc("/logs", apiServer.LogsHandler)
+	apiRouter.HandleFunc("/check-update", apiServer.CheckUpdateHandler).Methods("POST")
 
 	// Static files (for assets like CSS and JS)
 	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("./static"))))
@@ -88,4 +93,19 @@ func main() {
 
 	log.Println("Soulmask Control starting on :8080")
 	log.Fatal(srv.ListenAndServe())
+}
+
+func startUpdateWorker(svc *docker.Service) {
+	ticker := time.NewTicker(15 * time.Minute)
+	go func() {
+		log.Println("Update worker started (15m interval)")
+		for range ticker.C {
+			log.Println("Starting scheduled update check...")
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			if err := svc.CheckAndUpdate(ctx); err != nil {
+				log.Printf("Scheduled update check failed: %v", err)
+			}
+			cancel()
+		}
+	}()
 }

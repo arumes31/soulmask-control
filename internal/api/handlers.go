@@ -85,6 +85,16 @@ func (a *API) ActionHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+func (a *API) CheckUpdateHandler(w http.ResponseWriter, r *http.Request) {
+	go func() {
+		ctx := r.Context()
+		if err := a.docker.CheckAndUpdate(ctx); err != nil {
+			log.Printf("Manual update check failed: %v", err)
+		}
+	}()
+	w.WriteHeader(http.StatusAccepted)
+}
+
 func (a *API) LogsHandler(w http.ResponseWriter, r *http.Request) {
 	conn, err := a.upgrader.Upgrade(w, r, nil)
 	if err != nil {

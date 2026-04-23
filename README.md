@@ -8,7 +8,8 @@ A modern, secure, and responsive web interface for managing Soulmask dedicated s
 - **Container Management:** Direct controls to Start, Stop, and Restart the dedicated server container.
 - **Live Logs:** Integrated WebSocket-based log streaming for real-time console monitoring.
 - **Secure Authentication:** Simple yet effective password-protected access.
-- **Modern UI:** Built with Tailwind CSS, featuring a responsive design and interactive feedback.
+- **Auto-Update System:** Monitors the managed container's image for updates every 15 minutes. Automatically pulls new versions and recreates the container to apply patches.
+- **Modern UI:** Built with Tailwind CSS, featuring a responsive design, interactive feedback, and a dedicated Update Monitor panel.
 - **CI/CD Integrated:** Fully automated linting, security scanning (Gosec), and Docker image builds via GitHub Actions.
 
 ## 🛠️ Architecture
