@@ -196,9 +196,9 @@ function connectLogs() {
 
     ws.onopen = () => {
         const div = document.createElement('div');
-        div.className = 'text-green-500 font-bold border-l-2 border-green-500 pl-2 my-2';
-        div.textContent = `[${new Date().toLocaleTimeString()}] UPLINK_ESTABLISHED: STREAM_CONNECTED`;
-        terminal.appendChild(div);
+        div.className = 'text-green-500 font-bold border-l-2 border-green-500 pl-2 my-2 animate-pulse';
+        div.textContent = `[${new Date().toLocaleTimeString()}] UPLINK_ESTABLISHED: STREAM_CONNECTED (NEWEST AT TOP)`;
+        terminal.prepend(div);
         connStatus.innerHTML = '<div class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div><span class="text-xs font-medium text-gray-300 uppercase tracking-tighter">Live Stream Active</span>';
     };
 
@@ -206,7 +206,7 @@ function connectLogs() {
         try {
             const data = JSON.parse(event.data);
             const line = document.createElement('div');
-            line.className = 'hover:bg-white/5 transition-colors border-l-2 border-transparent pl-2 py-0.5 flex items-start group';
+            line.className = 'hover:bg-white/5 transition-colors border-l-2 border-transparent pl-2 py-0.5 flex items-start group animate-zoom';
             
             if (data.type === 'stderr') {
                 line.classList.add('bg-red-500/5', 'border-red-500/30');
@@ -222,18 +222,17 @@ function connectLogs() {
             
             line.appendChild(timeSpan);
             line.appendChild(contentSpan);
-            terminal.appendChild(line);
-            terminal.scrollTop = terminal.scrollHeight;
+            terminal.prepend(line);
             
             if (terminal.childNodes.length > 2000) {
-                terminal.removeChild(terminal.firstChild);
+                terminal.removeChild(terminal.lastChild);
             }
         } catch (e) {
             // Fallback for raw text
             const line = document.createElement('div');
             line.className = 'text-gray-500 text-xs italic opacity-50';
             line.textContent = event.data;
-            terminal.appendChild(line);
+            terminal.prepend(line);
         }
     };
 
