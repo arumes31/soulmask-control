@@ -51,8 +51,9 @@ async function updateStatus() {
         const currentSha = document.getElementById('current-version-sha');
         const latestSha = document.getElementById('latest-version-sha');
         
-        if (data.imageId) {
-            currentSha.textContent = data.imageId.replace('sha256:', '').substring(0, 12);
+        const activeId = data.imageId || (data.updateStatus ? data.updateStatus.currentVersion : null);
+        if (activeId) {
+            currentSha.textContent = activeId.replace('sha256:', '').substring(0, 12);
         }
 
         if (data.updateStatus) {
