@@ -14,7 +14,7 @@ services:
       - TRUST_PROXY=true
       - ALLOWED_ORIGINS=http://localhost:8080,http://localhost:80,https://yourdomain.com
       - DISCORD_WEBHOOK_URL=
-      - STEAM_APP_ID=2401390
+      - STEAM_APP_ID=2886870
     networks:
       - soulmask-network
       - proxy-tier # Optional network for reverse proxies

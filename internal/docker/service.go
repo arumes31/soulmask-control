@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -42,6 +44,12 @@ type ContainerInfo struct {
 	UpdateStatus UpdateStatus `json:"updateStatus"`
 	Stats        *Stats       `json:"stats,omitempty"`
 	LatestPatch  *PatchInfo   `json:"latestPatch,omitempty"`
+	Latency      LatencyInfo  `json:"latency"`
+}
+
+type LatencyInfo struct {
+	Cloudflare string `json:"cloudflare"`
+	Google     string `json:"google"`
 }
 
 type PatchInfo struct {
@@ -79,6 +87,7 @@ type Service struct {
 	notifier      notification.Notifier
 	pendingCancel context.CancelFunc
 	steamAppID    string
+	latencies     LatencyInfo
 }
 
 func (s *Service) setChecking(checking bool, errStr string) {
@@ -150,6 +159,39 @@ func (s *Service) notify(format string, args ...interface{}) {
 		log.Printf("[Notification] Failed: %v", err)
 	}
 }
+func (s *Service) StartLatencyMonitor(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	measure := func(host string) string {
+		start := time.Now()
+		conn, err := net.DialTimeout("tcp", host+":53", 2*time.Second)
+		if err != nil {
+			return "Err"
+		}
+		_ = conn.Close()
+		return fmt.Sprintf("%dms", time.Since(start).Milliseconds())
+	}
+
+	// Initial measure
+	s.mu.Lock()
+	s.latencies.Cloudflare = measure("1.1.1.1")
+	s.latencies.Google = measure("8.8.8.8")
+	s.mu.Unlock()
+
+	for {
+		select {
+		case <-ticker.C:
+			cf := measure("1.1.1.1")
+			goog := measure("8.8.8.8")
+			s.mu.Lock()
+			s.latencies = LatencyInfo{Cloudflare: cf, Google: goog}
+			s.mu.Unlock()
+		case <-ctx.Done():
+			return
+		}
+	}
+}
 
 func (s *Service) ListenForEvents(ctx context.Context) {
 	msgs, errs := s.cli.Events(ctx, events.ListOptions{})
@@ -216,6 +258,10 @@ func (s *Service) GetStatus(ctx context.Context) (*ContainerInfo, error) {
 
 	patch, _ := s.getLatestPatch(ctx)
 
+	s.mu.RLock()
+	latency := s.latencies
+	s.mu.RUnlock()
+
 	return &ContainerInfo{
 		ID:           inspect.ID[:12],
 		Status:       inspect.State.Status,
@@ -224,6 +270,7 @@ func (s *Service) GetStatus(ctx context.Context) (*ContainerInfo, error) {
 		UpdateStatus: updateStatus,
 		Stats:        stats,
 		LatestPatch:  patch,
+		Latency:      latency,
 	}, nil
 }
 
@@ -232,7 +279,8 @@ func (s *Service) getLatestPatch(ctx context.Context) (*PatchInfo, error) {
 		return nil, nil
 	}
 
-	url := fmt.Sprintf("https://api.steampowered.com/ISteamNews/GetNewsForApp/v0002/?appid=%s&count=1&maxlength=500&format=json", s.steamAppID)
+	// Try both GetNewsForApp versions if one fails or returns empty
+	url := fmt.Sprintf("https://api.steampowered.com/ISteamNews/GetNewsForApp/v0002/?appid=%s&count=5&maxlength=500&format=json", s.steamAppID)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -241,6 +289,7 @@ func (s *Service) getLatestPatch(ctx context.Context) (*PatchInfo, error) {
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
+		log.Printf("[SteamAPI] Request failed: %v", err)
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -248,29 +297,46 @@ func (s *Service) getLatestPatch(ctx context.Context) (*PatchInfo, error) {
 	var result struct {
 		AppNews struct {
 			NewsItems []struct {
-				Title string `json:"title"`
-				URL   string `json:"url"`
-				Date  int64  `json:"date"`
+				Title    string `json:"title"`
+				URL      string `json:"url"`
+				Date     int64  `json:"date"`
 				Contents string `json:"contents"`
+				FeedLabel string `json:"feedlabel"`
 			} `json:"newsitems"`
 		} `json:"appnews"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		log.Printf("[SteamAPI] Failed to decode news: %v", err)
 		return nil, err
 	}
 
-	if len(result.AppNews.NewsItems) == 0 {
+	items := result.AppNews.NewsItems
+	if len(items) == 0 {
 		return nil, nil
 	}
 
-	item := result.AppNews.NewsItems[0]
-	return &PatchInfo{
-		Title:       item.Title,
-		URL:         item.URL,
-		ReleaseDate: time.Unix(item.Date, 0),
-		Content:     item.Contents,
-	}, nil
+	// Prefer "Patch Notes" or "Update" labels if available, otherwise take the first
+	var bestItem *PatchInfo
+	for _, it := range items {
+		p := &PatchInfo{
+			Title:       it.Title,
+			URL:         it.URL,
+			ReleaseDate: time.Unix(it.Date, 0),
+			Content:     it.Contents,
+		}
+		if bestItem == nil {
+			bestItem = p
+		}
+		// If we find something that looks like actual patch notes, prefer it
+		lowerTitle := strings.ToLower(it.Title)
+		if strings.Contains(lowerTitle, "patch") || strings.Contains(lowerTitle, "update") || strings.Contains(lowerTitle, "hotfix") {
+			bestItem = p
+			break
+		}
+	}
+
+	return bestItem, nil
 }
 
 func (s *Service) getStats(ctx context.Context) (*Stats, error) {

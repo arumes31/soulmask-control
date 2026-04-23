@@ -154,6 +154,33 @@
                     </div>
                 </div>
 
+                <!-- Network Latency Widget -->
+                <div class="glass-panel p-4 rounded-3xl shadow-2xl border border-white/5 bg-white/5">
+                    <div class="flex justify-between items-center mb-3">
+                        <h2 class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Uplink Latency (TCP:53)</h2>
+                        <div class="flex gap-3">
+                            <div class="flex items-center gap-1.5">
+                                <div class="w-1.5 h-1.5 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]"></div>
+                                <span class="text-[9px] text-gray-500 uppercase font-black">Cloudflare</span>
+                            </div>
+                            <div class="flex items-center gap-1.5">
+                                <div class="w-1.5 h-1.5 rounded-full bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.5)]"></div>
+                                <span class="text-[9px] text-gray-500 uppercase font-black">Google</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div class="bg-black/20 p-2.5 rounded-2xl border border-white/5 flex justify-between items-center transition-all hover:bg-black/30">
+                            <span class="text-[9px] text-gray-500 font-black uppercase tracking-tighter">1.1.1.1</span>
+                            <span id="lat-cf" class="text-xs font-mono font-black text-blue-400">--ms</span>
+                        </div>
+                        <div class="bg-black/20 p-2.5 rounded-2xl border border-white/5 flex justify-between items-center transition-all hover:bg-black/30">
+                            <span class="text-[9px] text-gray-500 font-black uppercase tracking-tighter">8.8.8.8</span>
+                            <span id="lat-goog" class="text-xs font-mono font-black text-orange-400">--ms</span>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="glass-panel p-6 rounded-3xl shadow-2xl">
                     <div class="flex justify-between items-start mb-6">
                         <h2 class="text-sm font-bold text-gray-400 uppercase tracking-widest">Update Monitor</h2>

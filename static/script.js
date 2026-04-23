@@ -73,11 +73,13 @@ async function updateStatus() {
         }
 
         const formatBytes = (bytes) => {
-            if (!bytes || bytes === 0) return '0B';
+            if (bytes === 0) return '0B';
+            if (!bytes) return '--';
             const k = 1024;
             const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
             const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + sizes[i];
+            if (i < 0) return '0B';
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + (sizes[i] || 'B');
         };
 
         // Update stats
@@ -87,7 +89,7 @@ async function updateStatus() {
 
         if (data.stats) {
             const s = data.stats;
-            statCpu.textContent = `${s.cpuPercentage.toFixed(1)}%`;
+            statCpu.textContent = `${(s.cpuPercentage || 0).toFixed(1)}%`;
             statRam.textContent = `${formatBytes(s.memoryUsage)} / ${formatBytes(s.memoryLimit)}`;
             statDisk.textContent = `${formatBytes(s.diskRead)} / ${formatBytes(s.diskWrite)}`;
             
@@ -102,9 +104,9 @@ async function updateStatus() {
         }
         
         // Update Steam News
+        const newsPanel = document.getElementById('steam-news-panel');
         if (data.latestPatch) {
             const p = data.latestPatch;
-            const newsPanel = document.getElementById('steam-news-panel');
             newsPanel.classList.remove('hidden');
             document.getElementById('patch-title').textContent = p.title;
             document.getElementById('patch-date').textContent = new Date(p.releaseDate).toLocaleDateString();
@@ -113,6 +115,29 @@ async function updateStatus() {
             const cleanContent = p.content.replace(/\[\/?[^\]]+\]/g, '').replace(/<[^>]*>?/gm, '');
             document.getElementById('patch-content').textContent = cleanContent.substring(0, 180) + '...';
             document.getElementById('patch-link').href = p.url;
+        } else {
+            newsPanel.classList.add('hidden');
+        }
+
+        // Update latency
+        if (data.latency) {
+            const l = data.latency;
+            const cfEl = document.getElementById('lat-cf');
+            const googEl = document.getElementById('lat-goog');
+            
+            cfEl.textContent = l.cloudflare;
+            googEl.textContent = l.google;
+            
+            const getLatColor = (val) => {
+                if (val === 'Err') return 'text-red-500';
+                const ms = parseInt(val);
+                if (ms > 200) return 'text-red-400';
+                if (ms > 100) return 'text-yellow-400';
+                return 'text-green-400';
+            };
+            
+            cfEl.className = `text-xs font-mono font-black ${getLatColor(l.cloudflare)}`;
+            googEl.className = `text-xs font-mono font-black ${getLatColor(l.google)}`;
         }
 
         if (data.updateStatus) {
