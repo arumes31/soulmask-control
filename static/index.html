@@ -100,6 +100,29 @@
                     </div>
                 </div>
 
+                <div class="glass-panel p-6 rounded-3xl shadow-2xl">
+                    <div class="flex justify-between items-start mb-6">
+                        <h2 class="text-sm font-bold text-gray-400 uppercase tracking-widest">Update Monitor</h2>
+                        <span id="update-status-badge" class="px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-tighter bg-gray-800">Idle</span>
+                    </div>
+                    
+                    <div class="space-y-4">
+                        <div>
+                            <p class="text-[10px] text-gray-600 uppercase font-bold">Last Check</p>
+                            <p id="last-check-time" class="text-xs text-gray-400">Never</p>
+                        </div>
+                        <div id="update-progress-container" class="hidden">
+                             <div class="w-full bg-gray-800 rounded-full h-1.5 mb-2 overflow-hidden">
+                                <div id="update-progress-bar" class="bg-green-600 h-1.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+                            </div>
+                            <p id="update-progress-text" class="text-[10px] text-gray-500 uppercase font-mono italic">Downloading patches...</p>
+                        </div>
+                        <button onclick="checkUpdate()" id="btn-check-update" class="w-full py-2 bg-gray-800/40 hover:bg-green-600/20 text-[10px] font-bold text-gray-400 hover:text-green-500 rounded-xl border border-transparent hover:border-green-500/20 transition-all uppercase tracking-widest">
+                            Check for Patches
+                        </button>
+                    </div>
+                </div>
+
                 <div class="glass-panel p-6 rounded-3xl">
                     <h2 class="text-sm font-bold text-gray-400 uppercase tracking-widest mb-6">Operations</h2>
                     <div class="grid grid-cols-1 gap-3">

@@ -38,8 +38,65 @@ async function updateStatus() {
 
         document.getElementById('container-id').textContent = data.id || '--------';
         document.getElementById('container-image').textContent = data.image || 'N/A';
+
+        // Update handling
+        const updateBadge = document.getElementById('update-status-badge');
+        const lastCheck = document.getElementById('last-check-time');
+        const progressContainer = document.getElementById('update-progress-container');
+        const progressBar = document.getElementById('update-progress-bar');
+        const progressText = document.getElementById('update-progress-text');
+        const btnCheck = document.getElementById('btn-check-update');
+
+        if (data.updateStatus) {
+            const us = data.updateStatus;
+            const checkDate = new Date(us.lastCheck);
+            lastCheck.textContent = checkDate.getFullYear() > 2000 ? checkDate.toLocaleString() : 'Never';
+            
+            if (us.isUpdating) {
+                updateBadge.textContent = 'Updating';
+                updateBadge.className = 'px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-tighter bg-blue-500/20 text-blue-500 border border-blue-500/30';
+                progressContainer.classList.remove('hidden');
+                progressBar.style.width = '100%'; 
+                progressText.textContent = us.progress || 'Updating...';
+                btnCheck.disabled = true;
+                btnCheck.classList.add('opacity-50', 'cursor-not-allowed');
+            } else if (us.isChecking) {
+                updateBadge.textContent = 'Checking';
+                updateBadge.className = 'px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-tighter bg-yellow-500/20 text-yellow-500 border border-yellow-500/30';
+                progressContainer.classList.add('hidden');
+                btnCheck.disabled = true;
+                btnCheck.classList.add('opacity-50', 'cursor-not-allowed');
+            } else {
+                updateBadge.textContent = 'Idle';
+                updateBadge.className = 'px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-tighter bg-gray-800';
+                progressContainer.classList.add('hidden');
+                btnCheck.disabled = false;
+                btnCheck.classList.remove('opacity-50', 'cursor-not-allowed');
+            }
+
+            if (us.error) {
+                progressText.textContent = us.error;
+                progressText.classList.add('text-red-500');
+                progressContainer.classList.remove('hidden');
+                progressBar.classList.add('bg-red-500');
+            } else {
+                progressText.classList.remove('text-red-500');
+                progressBar.classList.remove('bg-red-500');
+            }
+        }
     } catch (e) {
         console.error('Status fetch error', e);
+    }
+}
+
+async function checkUpdate() {
+    try {
+        const response = await fetch('/api/check-update', { method: 'POST' });
+        if (response.ok) {
+            updateStatus();
+        }
+    } catch (e) {
+        console.error('Update check error', e);
     }
 }
 
