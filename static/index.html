@@ -139,6 +139,21 @@
                     </div>
                 </div>
 
+                <!-- Steam News Panel -->
+                <div id="steam-news-panel" class="hidden glass-panel p-6 rounded-3xl shadow-2xl border-t-4 border-green-600 bg-gradient-to-br from-green-950/20 to-transparent">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-sm font-bold text-gray-400 uppercase tracking-widest">Latest Patch</h2>
+                        <span id="patch-date" class="text-[9px] font-mono text-gray-600">--/--/----</span>
+                    </div>
+                    <div class="space-y-3">
+                        <h3 id="patch-title" class="text-xs font-black text-green-400 uppercase leading-tight">Fetching Latest News...</h3>
+                        <p id="patch-content" class="text-[10px] text-gray-500 line-clamp-3 leading-relaxed"></p>
+                        <a id="patch-link" href="#" target="_blank" class="inline-block text-[9px] font-black text-green-500 uppercase tracking-widest hover:text-green-400 transition-colors group">
+                            Read Full Changelog <span class="group-hover:translate-x-1 inline-block transition-transform">→</span>
+                        </a>
+                    </div>
+                </div>
+
                 <div class="glass-panel p-6 rounded-3xl shadow-2xl">
                     <div class="flex justify-between items-start mb-6">
                         <h2 class="text-sm font-bold text-gray-400 uppercase tracking-widest">Update Monitor</h2>

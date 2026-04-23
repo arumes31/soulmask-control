@@ -100,6 +100,20 @@ async function updateStatus() {
             statDisk.textContent = '-- / --';
             statCpu.className = 'text-sm font-mono font-bold text-gray-500';
         }
+        
+        // Update Steam News
+        if (data.latestPatch) {
+            const p = data.latestPatch;
+            const newsPanel = document.getElementById('steam-news-panel');
+            newsPanel.classList.remove('hidden');
+            document.getElementById('patch-title').textContent = p.title;
+            document.getElementById('patch-date').textContent = new Date(p.releaseDate).toLocaleDateString();
+            
+            // Basic HTML stripping and trimming
+            const cleanContent = p.content.replace(/\[\/?[^\]]+\]/g, '').replace(/<[^>]*>?/gm, '');
+            document.getElementById('patch-content').textContent = cleanContent.substring(0, 180) + '...';
+            document.getElementById('patch-link').href = p.url;
+        }
 
         if (data.updateStatus) {
             const us = data.updateStatus;
