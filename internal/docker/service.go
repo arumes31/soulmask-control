@@ -41,13 +41,15 @@ type ContainerInfo struct {
 }
 
 type UpdateStatus struct {
-	IsChecking  bool      `json:"isChecking"`
-	IsUpdating  bool      `json:"isUpdating"`
-	IsPending   bool      `json:"isPending"`
-	PendingTime time.Time `json:"pendingTime"`
-	LastCheck   time.Time `json:"lastCheck"`
-	Error       string    `json:"error"`
-	Progress    string    `json:"progress"`
+	IsChecking     bool      `json:"isChecking"`
+	IsUpdating     bool      `json:"isUpdating"`
+	IsPending      bool      `json:"isPending"`
+	PendingTime    time.Time `json:"pendingTime"`
+	LastCheck      time.Time `json:"lastCheck"`
+	CurrentVersion string    `json:"currentVersion"`
+	LatestVersion  string    `json:"latestVersion"`
+	Error          string    `json:"error"`
+	Progress       string    `json:"progress"`
 }
 
 type Service struct {
@@ -282,6 +284,11 @@ func (s *Service) CheckAndUpdate(ctx context.Context) (err error) {
 	if err != nil {
 		return fmt.Errorf("post-pull inspect failed: %w", err)
 	}
+
+	s.mu.Lock()
+	s.updateStatus.CurrentVersion = oldImageID
+	s.updateStatus.LatestVersion = newImage.ID
+	s.mu.Unlock()
 
 	if newImage.ID == oldImageID {
 		log.Printf("[UpdateWorker] %s is up to date", imageRef)

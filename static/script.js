@@ -83,6 +83,29 @@ async function updateStatus() {
                 btnCheck.classList.remove('opacity-50', 'cursor-not-allowed');
             }
 
+            if (us.currentVersion) {
+                const currentSha = document.getElementById('current-version-sha');
+                const latestSha = document.getElementById('latest-version-sha');
+                
+                const shortCurrent = us.currentVersion.replace('sha256:', '').substring(0, 12);
+                const shortLatest = us.latestVersion ? us.latestVersion.replace('sha256:', '').substring(0, 12) : '--------';
+                
+                currentSha.textContent = shortCurrent;
+                latestSha.textContent = shortLatest;
+
+                if (us.currentVersion === us.latestVersion && us.latestVersion) {
+                    currentSha.classList.remove('text-gray-500');
+                    currentSha.classList.add('text-green-500');
+                    latestSha.classList.remove('text-gray-500');
+                    latestSha.classList.add('text-green-500');
+                } else {
+                    currentSha.classList.add('text-gray-500');
+                    currentSha.classList.remove('text-green-500');
+                    latestSha.classList.add('text-gray-500');
+                    latestSha.classList.remove('text-green-500');
+                }
+            }
+
             if (us.error) {
                 progressText.textContent = us.error;
                 progressText.classList.add('text-red-500');
