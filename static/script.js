@@ -72,6 +72,49 @@ async function updateStatus() {
             currentSha.textContent = activeId.replace('sha256:', '').substring(0, 12);
         }
 
+        const formatBytes = (bytes) => {
+            if (!bytes || bytes === 0) return '0B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + sizes[i];
+        };
+
+        // Update stats
+        const statCpu = document.getElementById('stat-cpu');
+        const statRam = document.getElementById('stat-ram');
+        const statDisk = document.getElementById('stat-disk');
+
+        if (data.stats) {
+            const s = data.stats;
+            statCpu.textContent = `${s.cpuPercentage.toFixed(1)}%`;
+            statRam.textContent = `${formatBytes(s.memoryUsage)} / ${formatBytes(s.memoryLimit)}`;
+            statDisk.textContent = `${formatBytes(s.diskRead)} / ${formatBytes(s.diskWrite)}`;
+            
+            if (s.cpuPercentage > 80) statCpu.className = 'text-sm font-mono font-bold text-red-500';
+            else if (s.cpuPercentage > 50) statCpu.className = 'text-sm font-mono font-bold text-yellow-500';
+            else statCpu.className = 'text-sm font-mono font-bold text-green-500';
+        } else {
+            statCpu.textContent = '--%';
+            statRam.textContent = '-- / --';
+            statDisk.textContent = '-- / --';
+            statCpu.className = 'text-sm font-mono font-bold text-gray-500';
+        }
+        
+        // Update Steam News
+        if (data.latestPatch) {
+            const p = data.latestPatch;
+            const newsPanel = document.getElementById('steam-news-panel');
+            newsPanel.classList.remove('hidden');
+            document.getElementById('patch-title').textContent = p.title;
+            document.getElementById('patch-date').textContent = new Date(p.releaseDate).toLocaleDateString();
+            
+            // Basic HTML stripping and trimming
+            const cleanContent = p.content.replace(/\[\/?[^\]]+\]/g, '').replace(/<[^>]*>?/gm, '');
+            document.getElementById('patch-content').textContent = cleanContent.substring(0, 180) + '...';
+            document.getElementById('patch-link').href = p.url;
+        }
+
         if (data.updateStatus) {
             const us = data.updateStatus;
             const checkDate = new Date(us.lastCheck);

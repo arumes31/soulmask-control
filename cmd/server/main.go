@@ -26,6 +26,7 @@ type Config struct {
 	AllowedOrigins  []string
 	Port            string
 	DiscordWebhook  string
+	SteamAppID      string
 }
 
 func main() {
@@ -39,7 +40,7 @@ func main() {
 	}
 
 	// Initialize services
-	dockerService, err := docker.NewService(cfg.TargetContainer, notifier)
+	dockerService, err := docker.NewService(cfg.TargetContainer, notifier, cfg.SteamAppID)
 	if err != nil {
 		log.Fatalf("[Main] Failed to initialize Docker service: %v", err)
 	}
@@ -126,6 +127,7 @@ func loadConfig() Config {
 		AllowedOrigins:  strings.Split(os.Getenv("ALLOWED_ORIGINS"), ","),
 		Port:            port,
 		DiscordWebhook:  os.Getenv("DISCORD_WEBHOOK_URL"),
+		SteamAppID:      getEnv("STEAM_APP_ID", "2401390"),
 	}
 }
 

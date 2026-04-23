@@ -8,9 +8,11 @@ A modern, secure, and responsive web interface for managing Soulmask dedicated s
 - **Container Management:** Direct controls to Start, Stop, and Restart the dedicated server container.
 - **Live Logs:** Integrated WebSocket-based log streaming for real-time console monitoring.
 - **Secure Authentication:** Simple yet effective password-protected access.
-- **Auto-Update System:** Monitors the managed container's image for updates every 15 minutes. Automatically pulls new versions and recreates the container to apply patches.
-- **Modern UI:** Built with Tailwind CSS, featuring a responsive design, interactive feedback, and a dedicated Update Monitor panel.
-- **CI/CD Integrated:** Fully automated linting, security scanning (Gosec), and Docker image builds via GitHub Actions.
+- **Resource Monitoring:** Real-time tracking of CPU load, Memory usage, and Disk I/O with visual alerts.
+- **Steam News & Patches:** Integrated Steam News monitoring to display the latest game patches and changelogs.
+- **Auto-Update System:** Monitors images for updates every 15 minutes with a 15-minute delayed recreation and manual bypass.
+- **Discord Observability:** Real-time notifications for container events, crashes, and patch detections.
+- **Modern UI:** Built with Tailwind CSS, featuring a responsive design and premium custom favicon.
 
 ## 🛠️ Architecture
 
@@ -46,7 +48,8 @@ Environment variables used by the server:
 - `TARGET_CONTAINER`: The name or ID of the Soulmask container to manage.
 - `PORT`: (Optional) The port the web server listens on (default: 8080).
 - `TRUST_PROXY`: Set to `true` if running behind a reverse proxy (enables Secure cookies).
-- `DISCORD_WEBHOOK_URL`: (Optional) URL for Discord event notifications (server start/stop, container updates, etc.).
+- `DISCORD_WEBHOOK_URL`: (Optional) URL for Discord event notifications.
+- `STEAM_APP_ID`: (Optional) The Steam App ID for news monitoring (default: 2401390).
 
 ## 🛡️ Security
 

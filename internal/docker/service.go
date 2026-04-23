@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"sync"
 	"time"
 
@@ -30,6 +31,7 @@ type DockerClient interface {
 	ImageInspectWithRaw(ctx context.Context, imageID string) (image.InspectResponse, []byte, error)
 	ImageRemove(ctx context.Context, imageID string, options image.RemoveOptions) ([]image.DeleteResponse, error)
 	Events(ctx context.Context, options events.ListOptions) (<-chan events.Message, <-chan error)
+	ContainerStats(ctx context.Context, containerID string, stream bool) (container.StatsResponseReader, error)
 }
 
 type ContainerInfo struct {
@@ -38,6 +40,23 @@ type ContainerInfo struct {
 	Image        string       `json:"image"`
 	ImageID      string       `json:"imageId"`
 	UpdateStatus UpdateStatus `json:"updateStatus"`
+	Stats        *Stats       `json:"stats,omitempty"`
+	LatestPatch  *PatchInfo   `json:"latestPatch,omitempty"`
+}
+
+type PatchInfo struct {
+	Title       string    `json:"title"`
+	URL         string    `json:"url"`
+	ReleaseDate time.Time `json:"releaseDate"`
+	Content     string    `json:"content"`
+}
+
+type Stats struct {
+	CPUPercentage float64 `json:"cpuPercentage"`
+	MemoryUsage   uint64  `json:"memoryUsage"`
+	MemoryLimit   uint64  `json:"memoryLimit"`
+	DiskRead      uint64  `json:"diskRead"`
+	DiskWrite     uint64  `json:"diskWrite"`
 }
 
 type UpdateStatus struct {
@@ -53,12 +72,13 @@ type UpdateStatus struct {
 }
 
 type Service struct {
-	cli          DockerClient
-	target       string
-	mu           sync.RWMutex
-	updateStatus UpdateStatus
-	notifier     notification.Notifier
+	cli           DockerClient
+	target        string
+	mu            sync.RWMutex
+	updateStatus  UpdateStatus
+	notifier      notification.Notifier
 	pendingCancel context.CancelFunc
+	steamAppID    string
 }
 
 func (s *Service) setChecking(checking bool, errStr string) {
@@ -101,7 +121,7 @@ func (s *Service) setPending(pending bool, t time.Time) {
 	}
 }
 
-func NewService(target string, notifier notification.Notifier) (*Service, error) {
+func NewService(target string, notifier notification.Notifier, steamAppID string) (*Service, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create docker client: %w", err)
@@ -112,7 +132,8 @@ func NewService(target string, notifier notification.Notifier) (*Service, error)
 		updateStatus: UpdateStatus{
 			LastCheck: time.Now(),
 		},
-		notifier: notifier,
+		notifier:   notifier,
+		steamAppID: steamAppID,
 	}, nil
 }
 
@@ -188,12 +209,109 @@ func (s *Service) GetStatus(ctx context.Context) (*ContainerInfo, error) {
 	updateStatus := s.updateStatus
 	s.mu.Unlock()
 
+	var stats *Stats
+	if inspect.State.Running {
+		stats, _ = s.getStats(ctx)
+	}
+
+	patch, _ := s.getLatestPatch(ctx)
+
 	return &ContainerInfo{
 		ID:           inspect.ID[:12],
 		Status:       inspect.State.Status,
 		Image:        inspect.Config.Image,
 		ImageID:      inspect.Image,
 		UpdateStatus: updateStatus,
+		Stats:        stats,
+		LatestPatch:  patch,
+	}, nil
+}
+
+func (s *Service) getLatestPatch(ctx context.Context) (*PatchInfo, error) {
+	if s.steamAppID == "" {
+		return nil, nil
+	}
+
+	url := fmt.Sprintf("https://api.steampowered.com/ISteamNews/GetNewsForApp/v0002/?appid=%s&count=1&maxlength=500&format=json", s.steamAppID)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var result struct {
+		AppNews struct {
+			NewsItems []struct {
+				Title string `json:"title"`
+				URL   string `json:"url"`
+				Date  int64  `json:"date"`
+				Contents string `json:"contents"`
+			} `json:"newsitems"`
+		} `json:"appnews"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	if len(result.AppNews.NewsItems) == 0 {
+		return nil, nil
+	}
+
+	item := result.AppNews.NewsItems[0]
+	return &PatchInfo{
+		Title:       item.Title,
+		URL:         item.URL,
+		ReleaseDate: time.Unix(item.Date, 0),
+		Content:     item.Contents,
+	}, nil
+}
+
+func (s *Service) getStats(ctx context.Context) (*Stats, error) {
+	resp, err := s.cli.ContainerStats(ctx, s.target, false)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var v container.StatsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&v); err != nil {
+		return nil, err
+	}
+
+	cpuPercent := 0.0
+	cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage) - float64(v.PreCPUStats.CPUUsage.TotalUsage)
+	systemDelta := float64(v.CPUStats.SystemUsage) - float64(v.PreCPUStats.SystemUsage)
+	onlineCPUs := float64(v.CPUStats.OnlineCPUs)
+	if onlineCPUs == 0 {
+		onlineCPUs = float64(len(v.CPUStats.CPUUsage.PercpuUsage))
+	}
+	if systemDelta > 0.0 && cpuDelta > 0.0 {
+		cpuPercent = (cpuDelta / systemDelta) * onlineCPUs * 100.0
+	}
+
+	var rx, tx uint64
+	for _, blk := range v.BlkioStats.IoServiceBytesRecursive {
+		switch blk.Op {
+		case "Read":
+			rx += blk.Value
+		case "Write":
+			tx += blk.Value
+		}
+	}
+
+	return &Stats{
+		CPUPercentage: cpuPercent,
+		MemoryUsage:   v.MemoryStats.Usage,
+		MemoryLimit:   v.MemoryStats.Limit,
+		DiskRead:      rx,
+		DiskWrite:     tx,
 	}, nil
 }
 
