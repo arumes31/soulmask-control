@@ -171,23 +171,37 @@ function connectLogs() {
     };
 
     ws.onmessage = (event) => {
-        const line = document.createElement('div');
-        line.className = 'hover:bg-white/5 transition-colors border-l border-transparent hover:border-gray-700 pl-2 py-0.5';
-        
-        const timeSpan = document.createElement('span');
-        timeSpan.className = 'text-gray-600 mr-3 text-[10px] select-none';
-        timeSpan.textContent = new Date().toLocaleTimeString([], {hour12: false});
-        
-        const contentSpan = document.createElement('span');
-        contentSpan.textContent = event.data;
-        
-        line.appendChild(timeSpan);
-        line.appendChild(contentSpan);
-        terminal.appendChild(line);
-        terminal.scrollTop = terminal.scrollHeight;
-        
-        if (terminal.childNodes.length > 2000) {
-            terminal.removeChild(terminal.firstChild);
+        try {
+            const data = JSON.parse(event.data);
+            const line = document.createElement('div');
+            line.className = 'hover:bg-white/5 transition-colors border-l-2 border-transparent pl-2 py-0.5 flex items-start group';
+            
+            if (data.type === 'stderr') {
+                line.classList.add('bg-red-500/5', 'border-red-500/30');
+            }
+
+            const timeSpan = document.createElement('span');
+            timeSpan.className = 'text-gray-600 mr-3 text-[10px] select-none font-mono shrink-0 pt-0.5';
+            timeSpan.textContent = new Date().toLocaleTimeString([], {hour12: false});
+            
+            const contentSpan = document.createElement('span');
+            contentSpan.className = data.type === 'stderr' ? 'text-red-400 font-mono text-sm' : 'text-gray-300 font-mono text-sm';
+            contentSpan.textContent = data.content;
+            
+            line.appendChild(timeSpan);
+            line.appendChild(contentSpan);
+            terminal.appendChild(line);
+            terminal.scrollTop = terminal.scrollHeight;
+            
+            if (terminal.childNodes.length > 2000) {
+                terminal.removeChild(terminal.firstChild);
+            }
+        } catch (e) {
+            // Fallback for raw text
+            const line = document.createElement('div');
+            line.className = 'text-gray-500 text-xs italic opacity-50';
+            line.textContent = event.data;
+            terminal.appendChild(line);
         }
     };
 

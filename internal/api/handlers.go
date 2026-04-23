@@ -6,18 +6,43 @@ import (
 	"log"
 	"net/http"
 	"time"
-	"encoding/binary"
 
 	"soulmask-control/internal/docker"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
+	"github.com/docker/docker/pkg/stdcopy"
 )
 
 type API struct {
 	docker         *docker.Service
 	allowedOrigins []string
 	upgrader       websocket.Upgrader
+}
+
+type LogMessage struct {
+	Type    string `json:"type"` // "stdout" or "stderr"
+	Content string `json:"content"`
+}
+
+type wsWriter struct {
+	conn   *websocket.Conn
+	stream string
+}
+
+func (w *wsWriter) Write(p []byte) (n int, err error) {
+	msg := LogMessage{
+		Type:    w.stream,
+		Content: string(p),
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return 0, err
+	}
+	if err := w.conn.WriteMessage(websocket.TextMessage, data); err != nil {
+		return 0, err
+	}
+	return len(p), nil
 }
 
 func NewAPI(docker *docker.Service, allowedOrigins []string) *API {
@@ -114,43 +139,12 @@ func (a *API) LogsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	buf := make([]byte, 8192)
-	for {
-		n, err := reader.Read(buf)
-		if n > 8 {
-			cleanLog := stripDockerHeader(buf[:n])
-			if err := conn.WriteMessage(websocket.TextMessage, cleanLog); err != nil {
-				return
-			}
-		}
-		if err != nil {
-			return
-		}
+	stdout := &wsWriter{conn: conn, stream: "stdout"}
+	stderr := &wsWriter{conn: conn, stream: "stderr"}
+
+	// stdcopy.StdCopy will demultiplex the Docker log stream
+	if _, err := stdcopy.StdCopy(stdout, stderr, reader); err != nil {
+		log.Printf("[API] Log streaming ended: %v", err)
 	}
 }
 
-func stripDockerHeader(data []byte) []byte {
-	if len(data) < 8 {
-		return data
-	}
-	var result []byte
-	for i := 0; i < len(data); {
-		if i+8 > len(data) {
-			result = append(result, data[i:]...)
-			break
-		}
-
-		// Docker header: [stream_type, 0, 0, 0, size1, size2, size3, size4]
-		size := int(binary.BigEndian.Uint32(data[i+4 : i+8]))
-		start := i + 8
-		end := start + size
-
-		if end > len(data) {
-			result = append(result, data[start:]...)
-			break
-		}
-		result = append(result, data[start:end]...)
-		i = end
-	}
-	return result
-}
