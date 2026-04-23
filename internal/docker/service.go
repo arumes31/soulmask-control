@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os/exec"
 	"runtime"
@@ -174,7 +175,13 @@ func (s *Service) StartLatencyMonitor(ctx context.Context) {
 
 		start := time.Now()
 		if err := cmd.Run(); err != nil {
-			return "Err"
+			// Fallback to TCP if ping fails (e.g. missing in container)
+			conn, err := net.DialTimeout("tcp", host+":53", 2*time.Second)
+			if err != nil {
+				return "Err"
+			}
+			_ = conn.Close()
+			return fmt.Sprintf("%dms*", time.Since(start).Milliseconds())
 		}
 		return fmt.Sprintf("%dms", time.Since(start).Milliseconds())
 	}
@@ -360,12 +367,14 @@ func (s *Service) fetchNews(ctx context.Context, appID string) (*PatchInfo, erro
 func (s *Service) getStats(ctx context.Context) (*Stats, error) {
 	resp, err := s.cli.ContainerStats(ctx, s.target, false)
 	if err != nil {
+		log.Printf("[Docker] ContainerStats failed for %s: %v", s.target, err)
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	var v container.StatsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&v); err != nil {
+		log.Printf("[Docker] Failed to decode stats for %s: %v", s.target, err)
 		return nil, err
 	}
 

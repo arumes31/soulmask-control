@@ -12,6 +12,10 @@ const latencyHistory = {
 };
 
 function initLatencyChart() {
+    if (typeof Chart === 'undefined') {
+        console.warn('Chart.js not loaded yet');
+        return;
+    }
     const canvas = document.getElementById('latency-chart');
     if (!canvas) return;
     
@@ -136,11 +140,11 @@ async function updateStatus() {
 
         const formatBytes = (bytes) => {
             if (bytes === 0) return '0B';
-            if (!bytes) return '--';
+            if (!bytes || bytes < 0) return '--';
             const k = 1024;
             const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
             const i = Math.floor(Math.log(bytes) / Math.log(k));
-            if (i < 0) return '0B';
+            if (i < 0) return bytes + 'B';
             return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + (sizes[i] || 'B');
         };
 
