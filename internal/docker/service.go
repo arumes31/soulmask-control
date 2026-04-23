@@ -14,6 +14,7 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"soulmask-control/internal/notification"
 )
 
 type DockerClient interface {
@@ -50,6 +51,7 @@ type Service struct {
 	target       string
 	mu           sync.RWMutex
 	updateStatus UpdateStatus
+	notifier     notification.Notifier
 }
 
 func (s *Service) setChecking(checking bool, errStr string) {
@@ -77,7 +79,7 @@ func (s *Service) setUpdating(updating bool, progress string, errStr string) {
 	}
 }
 
-func NewService(target string) (*Service, error) {
+func NewService(target string, notifier notification.Notifier) (*Service, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create docker client: %w", err)
@@ -88,11 +90,22 @@ func NewService(target string) (*Service, error) {
 		updateStatus: UpdateStatus{
 			LastCheck: time.Now(),
 		},
+		notifier: notifier,
 	}, nil
 }
 
-func NewServiceWithClient(target string, cli DockerClient) *Service {
-	return &Service{cli: cli, target: target}
+func NewServiceWithClient(target string, cli DockerClient, notifier notification.Notifier) *Service {
+	return &Service{cli: cli, target: target, notifier: notifier}
+}
+
+func (s *Service) notify(format string, args ...interface{}) {
+	if s.notifier == nil {
+		return
+	}
+	msg := fmt.Sprintf(format, args...)
+	if err := s.notifier.Notify(msg); err != nil {
+		log.Printf("[Notification] Failed: %v", err)
+	}
 }
 
 func (s *Service) GetStatus(ctx context.Context) (*ContainerInfo, error) {
@@ -114,15 +127,27 @@ func (s *Service) GetStatus(ctx context.Context) (*ContainerInfo, error) {
 }
 
 func (s *Service) Start(ctx context.Context) error {
-	return s.cli.ContainerStart(ctx, s.target, container.StartOptions{})
+	err := s.cli.ContainerStart(ctx, s.target, container.StartOptions{})
+	if err == nil {
+		s.notify("🚀 Container **%s** started", s.target)
+	}
+	return err
 }
 
 func (s *Service) Stop(ctx context.Context) error {
-	return s.cli.ContainerStop(ctx, s.target, container.StopOptions{})
+	err := s.cli.ContainerStop(ctx, s.target, container.StopOptions{})
+	if err == nil {
+		s.notify("🛑 Container **%s** stopped", s.target)
+	}
+	return err
 }
 
 func (s *Service) Restart(ctx context.Context) error {
-	return s.cli.ContainerRestart(ctx, s.target, container.StopOptions{})
+	err := s.cli.ContainerRestart(ctx, s.target, container.StopOptions{})
+	if err == nil {
+		s.notify("🔄 Container **%s** restarted", s.target)
+	}
+	return err
 }
 
 func (s *Service) Logs(ctx context.Context, tail string) (io.ReadCloser, error) {
@@ -181,6 +206,7 @@ func (s *Service) CheckAndUpdate(ctx context.Context) (err error) {
 	defer func() {
 		if err != nil {
 			s.setChecking(false, err.Error())
+			s.notify("❌ Update check failed for **%s**: %v", s.target, err)
 		} else {
 			s.setChecking(false, "")
 		}
@@ -211,6 +237,7 @@ func (s *Service) CheckAndUpdate(ctx context.Context) (err error) {
 	}
 
 	log.Printf("[UpdateWorker] Update detected: %s -> %s", oldImageID, newImage.ID)
+	s.notify("✨ New version detected for **%s**\n`%s` ➡️ `%s`", s.target, oldImageID[:12], newImage.ID[:12])
 	return s.PerformUpdate(ctx, inspect)
 }
 
@@ -219,6 +246,7 @@ func (s *Service) PerformUpdate(ctx context.Context, oldInspect container.Inspec
 	defer func() {
 		if err != nil {
 			s.setUpdating(false, "", err.Error())
+			s.notify("🚨 Update failed for **%s**: %v", s.target, err)
 		} else {
 			s.setUpdating(false, "", "")
 		}
@@ -263,5 +291,6 @@ func (s *Service) PerformUpdate(ctx context.Context, oldInspect container.Inspec
 	_, _ = s.cli.ImageRemove(ctx, oldInspect.Image, image.RemoveOptions{PruneChildren: true})
 
 	log.Printf("[UpdateWorker] Successfully updated %s", s.target)
+	s.notify("✅ Successfully updated **%s** to new image", s.target)
 	return nil
 }

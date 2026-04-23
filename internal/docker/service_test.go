@@ -53,7 +53,7 @@ func (m *mockDockerClient) ImageRemove(ctx context.Context, imageID string, opti
 func TestService(t *testing.T) {
 	target := "soulmask-server"
 	mock := &mockDockerClient{}
-	svc := NewServiceWithClient(target, mock)
+	svc := NewServiceWithClient(target, mock, nil)
 
 	t.Run("GetStatus", func(t *testing.T) {
 		mock.inspectFunc = func(ctx context.Context, containerID string) (container.InspectResponse, error) {

@@ -28,7 +28,7 @@ func (m *mockClient) ContainerInspect(ctx context.Context, containerID string) (
 
 func TestAPIHandlers(t *testing.T) {
 	mockCli := &mockClient{}
-	svc := docker.NewServiceWithClient("target", mockCli)
+	svc := docker.NewServiceWithClient("target", mockCli, nil)
 	api := NewAPI(svc, []string{"*"})
 
 	t.Run("StatusHandler", func(t *testing.T) {
