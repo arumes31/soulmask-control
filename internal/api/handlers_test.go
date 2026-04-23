@@ -9,7 +9,6 @@ import (
 
 	"soulmask-control/internal/docker"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 )
 
@@ -17,11 +16,11 @@ type mockClient struct {
 	docker.DockerClient
 }
 
-func (m *mockClient) ContainerInspect(ctx context.Context, containerID string) (types.ContainerJSON, error) {
-	return types.ContainerJSON{
-		ContainerJSONBase: &types.ContainerJSONBase{
+func (m *mockClient) ContainerInspect(ctx context.Context, containerID string) (container.InspectResponse, error) {
+	return container.InspectResponse{
+		ContainerJSONBase: &container.ContainerJSONBase{
 			ID: "1234567890abcdef",
-			State: &types.ContainerState{Status: "running"},
+			State: &container.State{Status: "running"},
 		},
 		Config: &container.Config{Image: "img"},
 	}, nil

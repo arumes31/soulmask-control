@@ -6,18 +6,20 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/api/types/network"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 type mockDockerClient struct {
 	DockerClient
-	inspectFunc func(ctx context.Context, containerID string) (types.ContainerJSON, error)
+	inspectFunc func(ctx context.Context, containerID string) (container.InspectResponse, error)
 	startFunc   func(ctx context.Context, containerID string, options container.StartOptions) error
 	stopFunc    func(ctx context.Context, containerID string, options container.StopOptions) error
 }
 
-func (m *mockDockerClient) ContainerInspect(ctx context.Context, containerID string) (types.ContainerJSON, error) {
+func (m *mockDockerClient) ContainerInspect(ctx context.Context, containerID string) (container.InspectResponse, error) {
 	return m.inspectFunc(ctx, containerID)
 }
 func (m *mockDockerClient) ContainerStart(ctx context.Context, containerID string, options container.StartOptions) error {
@@ -32,6 +34,21 @@ func (m *mockDockerClient) ContainerRestart(ctx context.Context, containerID str
 func (m *mockDockerClient) ContainerLogs(ctx context.Context, containerID string, options container.LogsOptions) (io.ReadCloser, error) {
 	return io.NopCloser(strings.NewReader("log line")), nil
 }
+func (m *mockDockerClient) ImagePull(ctx context.Context, ref string, options image.PullOptions) (io.ReadCloser, error) {
+	return io.NopCloser(strings.NewReader(`{"status":"pulling"}`)), nil
+}
+func (m *mockDockerClient) ContainerRemove(ctx context.Context, containerID string, options container.RemoveOptions) error {
+	return nil
+}
+func (m *mockDockerClient) ContainerCreate(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *ocispec.Platform, containerName string) (container.CreateResponse, error) {
+	return container.CreateResponse{ID: "new-id"}, nil
+}
+func (m *mockDockerClient) ImageInspectWithRaw(ctx context.Context, imageID string) (image.InspectResponse, []byte, error) {
+	return image.InspectResponse{ID: "current-id"}, nil, nil
+}
+func (m *mockDockerClient) ImageRemove(ctx context.Context, imageID string, options image.RemoveOptions) ([]image.DeleteResponse, error) {
+	return nil, nil
+}
 
 func TestService(t *testing.T) {
 	target := "soulmask-server"
@@ -39,11 +56,11 @@ func TestService(t *testing.T) {
 	svc := NewServiceWithClient(target, mock)
 
 	t.Run("GetStatus", func(t *testing.T) {
-		mock.inspectFunc = func(ctx context.Context, containerID string) (types.ContainerJSON, error) {
-			return types.ContainerJSON{
-				ContainerJSONBase: &types.ContainerJSONBase{
+		mock.inspectFunc = func(ctx context.Context, containerID string) (container.InspectResponse, error) {
+			return container.InspectResponse{
+				ContainerJSONBase: &container.ContainerJSONBase{
 					ID: "1234567890abcdef",
-					State: &types.ContainerState{
+					State: &container.State{
 						Status: "running",
 					},
 				},

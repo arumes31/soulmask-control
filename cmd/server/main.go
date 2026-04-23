@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"soulmask-control/internal/api"
@@ -15,77 +18,145 @@ import (
 	"github.com/gorilla/mux"
 )
 
+type Config struct {
+	TargetContainer string
+	AdminPassword   string
+	TrustProxy      bool
+	AllowedOrigins  []string
+	Port            string
+}
+
 func main() {
-	targetContainer := os.Getenv("TARGET_CONTAINER")
-	if targetContainer == "" {
-		targetContainer = "soulmask-server"
-	}
-
-	adminPassword := os.Getenv("ADMIN_PASSWORD")
-	if adminPassword == "" {
-		adminPassword = "admin"
-		log.Println("WARNING: Using default password 'admin'")
-	}
-
-	trustProxy := os.Getenv("TRUST_PROXY") == "true"
-	allowedOrigins := strings.Split(os.Getenv("ALLOWED_ORIGINS"), ",")
+	cfg := loadConfig()
 
 	// Initialize services
-	dockerService, err := docker.NewService(targetContainer)
+	dockerService, err := docker.NewService(cfg.TargetContainer)
 	if err != nil {
-		log.Fatal("Failed to initialize Docker service:", err)
+		log.Fatalf("[Main] Failed to initialize Docker service: %v", err)
 	}
 
-	authenticator := auth.NewAuthenticator(adminPassword, trustProxy)
-	apiServer := api.NewAPI(dockerService, allowedOrigins)
+	authenticator := auth.NewAuthenticator(cfg.AdminPassword, cfg.TrustProxy)
+	apiServer := api.NewAPI(dockerService, cfg.AllowedOrigins)
+
+	// Context for background tasks
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Start update worker
+	go startUpdateWorker(ctx, dockerService)
 
 	// Router setup
 	r := mux.NewRouter()
-
-	// Global Middleware
-	r.Use(middleware.IPMiddleware(trustProxy))
+	r.Use(middleware.IPMiddleware(cfg.TrustProxy))
 	r.Use(middleware.LoggingMiddleware)
 
-	// Auth Routes
+	// Auth & Dashboard Routes
+	setupWebRoutes(r, authenticator)
+
+	// API Subrouter
+	apiRouter := r.PathPrefix("/api").Subrouter()
+	apiRouter.HandleFunc("/status", apiServer.StatusHandler).Methods("GET")
+	apiRouter.HandleFunc("/action/{action}", apiServer.ActionHandler).Methods("POST")
+	apiRouter.HandleFunc("/logs", apiServer.LogsHandler)
+	apiRouter.HandleFunc("/check-update", apiServer.CheckUpdateHandler).Methods("POST")
+
+	// Static Assets
+	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("./static"))))
+
+	srv := &http.Server{
+		Addr:         cfg.Port,
+		Handler:      r,
+		WriteTimeout: 30 * time.Second,
+		ReadTimeout:  15 * time.Second,
+	}
+
+	// Server runner
+	go func() {
+		log.Printf("[Main] Soulmask Control starting on %s (Target: %s)", cfg.Port, cfg.TargetContainer)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("[Main] Server error: %v", err)
+		}
+	}()
+
+	// Graceful Shutdown Logic
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	<-stop
+
+	log.Println("[Main] Shutting down...")
+	cancel() // Signal background worker to stop
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Fatalf("[Main] Forced shutdown: %v", err)
+	}
+	log.Println("[Main] Exited successfully")
+}
+
+func loadConfig() Config {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = ":8080"
+	} else if !strings.HasPrefix(port, ":") {
+		port = ":" + port
+	}
+
+	return Config{
+		TargetContainer: getEnv("TARGET_CONTAINER", "soulmask-server"),
+		AdminPassword:   getEnv("ADMIN_PASSWORD", "admin"),
+		TrustProxy:      os.Getenv("TRUST_PROXY") == "true",
+		AllowedOrigins:  strings.Split(os.Getenv("ALLOWED_ORIGINS"), ","),
+		Port:            port,
+	}
+}
+
+func getEnv(key, fallback string) string {
+	if val := os.Getenv(key); val != "" {
+		return val
+	}
+	return fallback
+}
+
+func setupWebRoutes(r *mux.Router, auth *auth.Authenticator) {
 	r.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == "GET" {
-			if authenticator.IsAuthenticated(r) {
+		if r.Method == http.MethodGet {
+			if auth.IsAuthenticated(r) {
 				http.Redirect(w, r, "/", http.StatusSeeOther)
 				return
 			}
 			http.ServeFile(w, r, "./static/login.html")
 			return
 		}
-		authenticator.LoginHandler(w, r)
-	}).Methods("GET", "POST")
+		auth.LoginHandler(w, r)
+	}).Methods(http.MethodGet, http.MethodPost)
 
-	r.HandleFunc("/logout", authenticator.LogoutHandler).Methods("POST")
+	r.HandleFunc("/logout", auth.LogoutHandler).Methods(http.MethodPost)
 
-	// Dashboard Root
 	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if !authenticator.IsAuthenticated(r) {
+		if !auth.IsAuthenticated(r) {
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}
 		http.ServeFile(w, r, "./static/index.html")
-	}).Methods("GET")
+	}).Methods(http.MethodGet)
+}
 
-	// API Subrouter with Auth
-	apiRouter := r.PathPrefix("/api").Subrouter()
-	apiRouter.HandleFunc("/status", apiServer.StatusHandler).Methods("GET")
-	apiRouter.HandleFunc("/action/{action}", apiServer.ActionHandler).Methods("POST")
-	apiRouter.HandleFunc("/logs", apiServer.LogsHandler)
+func startUpdateWorker(ctx context.Context, svc *docker.Service) {
+	ticker := time.NewTicker(15 * time.Minute)
+	defer ticker.Stop()
 
-	// Static files (for assets like CSS and JS)
-	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("./static"))))
-
-	srv := &http.Server{
-		Handler:      r,
-		Addr:         ":8080",
-		WriteTimeout: 15 * time.Second,
-		ReadTimeout:  15 * time.Second,
+	for {
+		select {
+		case <-ticker.C:
+			workCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+			if err := svc.CheckAndUpdate(workCtx); err != nil {
+				log.Printf("[UpdateWorker] Scheduled check failed: %v", err)
+			}
+			cancel()
+		case <-ctx.Done():
+			return
+		}
 	}
-
-	log.Println("Soulmask Control starting on :8080")
-	log.Fatal(srv.ListenAndServe())
 }
