@@ -47,11 +47,37 @@ async function updateStatus() {
         const progressText = document.getElementById('update-progress-text');
         const btnCheck = document.getElementById('btn-check-update');
 
+        // Update versions
+        const currentSha = document.getElementById('current-version-sha');
+        const latestSha = document.getElementById('latest-version-sha');
+        
+        if (data.imageId) {
+            currentSha.textContent = data.imageId.replace('sha256:', '').substring(0, 12);
+        }
+
         if (data.updateStatus) {
             const us = data.updateStatus;
             const checkDate = new Date(us.lastCheck);
             lastCheck.textContent = checkDate.getFullYear() > 2000 ? checkDate.toLocaleString() : 'Never';
             
+            if (us.latestVersion) {
+                latestSha.textContent = us.latestVersion.replace('sha256:', '').substring(0, 12);
+                
+                // Highlight matches
+                const currentId = data.imageId || us.currentVersion;
+                if (currentId === us.latestVersion) {
+                    currentSha.classList.remove('text-gray-500');
+                    currentSha.classList.add('text-green-500');
+                    latestSha.classList.remove('text-gray-500');
+                    latestSha.classList.add('text-green-500');
+                } else {
+                    currentSha.classList.add('text-gray-500');
+                    currentSha.classList.remove('text-green-500');
+                    latestSha.classList.add('text-gray-500');
+                    latestSha.classList.remove('text-green-500');
+                }
+            }
+
             if (us.isUpdating) {
                 updateBadge.textContent = 'Updating';
                 updateBadge.className = 'px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-tighter bg-blue-500/20 text-blue-500 border border-blue-500/30';
@@ -81,29 +107,6 @@ async function updateStatus() {
                 progressContainer.classList.add('hidden');
                 btnCheck.disabled = false;
                 btnCheck.classList.remove('opacity-50', 'cursor-not-allowed');
-            }
-
-            if (us.currentVersion) {
-                const currentSha = document.getElementById('current-version-sha');
-                const latestSha = document.getElementById('latest-version-sha');
-                
-                const shortCurrent = us.currentVersion.replace('sha256:', '').substring(0, 12);
-                const shortLatest = us.latestVersion ? us.latestVersion.replace('sha256:', '').substring(0, 12) : '--------';
-                
-                currentSha.textContent = shortCurrent;
-                latestSha.textContent = shortLatest;
-
-                if (us.currentVersion === us.latestVersion && us.latestVersion) {
-                    currentSha.classList.remove('text-gray-500');
-                    currentSha.classList.add('text-green-500');
-                    latestSha.classList.remove('text-gray-500');
-                    latestSha.classList.add('text-green-500');
-                } else {
-                    currentSha.classList.add('text-gray-500');
-                    currentSha.classList.remove('text-green-500');
-                    latestSha.classList.add('text-gray-500');
-                    latestSha.classList.remove('text-green-500');
-                }
             }
 
             if (us.error) {
