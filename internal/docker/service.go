@@ -10,10 +10,12 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"soulmask-control/internal/notification"
 )
 
 type DockerClient interface {
@@ -27,6 +29,7 @@ type DockerClient interface {
 	ContainerCreate(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *ocispec.Platform, containerName string) (container.CreateResponse, error)
 	ImageInspectWithRaw(ctx context.Context, imageID string) (image.InspectResponse, []byte, error)
 	ImageRemove(ctx context.Context, imageID string, options image.RemoveOptions) ([]image.DeleteResponse, error)
+	Events(ctx context.Context, options events.ListOptions) (<-chan events.Message, <-chan error)
 }
 
 type ContainerInfo struct {
@@ -38,11 +41,13 @@ type ContainerInfo struct {
 }
 
 type UpdateStatus struct {
-	IsChecking bool      `json:"isChecking"`
-	IsUpdating bool      `json:"isUpdating"`
-	LastCheck  time.Time `json:"lastCheck"`
-	Error      string    `json:"error"`
-	Progress   string    `json:"progress"`
+	IsChecking  bool      `json:"isChecking"`
+	IsUpdating  bool      `json:"isUpdating"`
+	IsPending   bool      `json:"isPending"`
+	PendingTime time.Time `json:"pendingTime"`
+	LastCheck   time.Time `json:"lastCheck"`
+	Error       string    `json:"error"`
+	Progress    string    `json:"progress"`
 }
 
 type Service struct {
@@ -50,6 +55,7 @@ type Service struct {
 	target       string
 	mu           sync.RWMutex
 	updateStatus UpdateStatus
+	notifier     notification.Notifier
 }
 
 func (s *Service) setChecking(checking bool, errStr string) {
@@ -72,12 +78,27 @@ func (s *Service) setUpdating(updating bool, progress string, errStr string) {
 	defer s.mu.Unlock()
 	s.updateStatus.IsUpdating = updating
 	s.updateStatus.Progress = progress
+	if updating {
+		s.updateStatus.IsPending = false
+	}
 	if errStr != "" {
 		s.updateStatus.Error = errStr
 	}
 }
 
-func NewService(target string) (*Service, error) {
+func (s *Service) setPending(pending bool, t time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.updateStatus.IsPending = pending
+	s.updateStatus.PendingTime = t
+	if pending {
+		s.updateStatus.Progress = "Update scheduled"
+	} else {
+		s.updateStatus.Progress = ""
+	}
+}
+
+func NewService(target string, notifier notification.Notifier) (*Service, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create docker client: %w", err)
@@ -88,11 +109,67 @@ func NewService(target string) (*Service, error) {
 		updateStatus: UpdateStatus{
 			LastCheck: time.Now(),
 		},
+		notifier: notifier,
 	}, nil
 }
 
-func NewServiceWithClient(target string, cli DockerClient) *Service {
-	return &Service{cli: cli, target: target}
+func NewServiceWithClient(target string, cli DockerClient, notifier notification.Notifier) *Service {
+	return &Service{cli: cli, target: target, notifier: notifier}
+}
+
+func (s *Service) notify(format string, args ...interface{}) {
+	if s.notifier == nil {
+		return
+	}
+	msg := fmt.Sprintf(format, args...)
+	if err := s.notifier.Notify(msg); err != nil {
+		log.Printf("[Notification] Failed: %v", err)
+	}
+}
+
+func (s *Service) ListenForEvents(ctx context.Context) {
+	msgs, errs := s.cli.Events(ctx, events.ListOptions{})
+	
+	log.Printf("[Events] Started listening for Docker events on %s", s.target)
+
+	for {
+		select {
+		case err := <-errs:
+			if err != nil && err != io.EOF && ctx.Err() == nil {
+				log.Printf("[Events] Error: %v", err)
+				// Reconnect after delay
+				time.Sleep(5 * time.Second)
+				msgs, errs = s.cli.Events(ctx, events.ListOptions{})
+			}
+		case msg := <-msgs:
+			if msg.Type != events.ContainerEventType {
+				continue
+			}
+			
+			// Match by ID or Name (target is name in this app)
+			if msg.Actor.Attributes["name"] != s.target && msg.Actor.ID[:12] != s.target[:12] && msg.Actor.ID != s.target {
+				continue
+			}
+
+			switch msg.Action {
+			case "start":
+				s.notify("🚀 Container **%s** started", s.target)
+			case "stop":
+				s.notify("🛑 Container **%s** stopped", s.target)
+			case "die":
+				// If it wasn't a clean stop
+				if msg.Actor.Attributes["exitCode"] != "0" {
+					s.notify("💀 Container **%s** crashed (Exit Code: %s)", s.target, msg.Actor.Attributes["exitCode"])
+				}
+			case "oom":
+				s.notify("🚨 Container **%s** ran out of memory!", s.target)
+			case "restart":
+				s.notify("🔄 Container **%s** restarted", s.target)
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
 }
 
 func (s *Service) GetStatus(ctx context.Context) (*ContainerInfo, error) {
@@ -181,6 +258,7 @@ func (s *Service) CheckAndUpdate(ctx context.Context) (err error) {
 	defer func() {
 		if err != nil {
 			s.setChecking(false, err.Error())
+			s.notify("❌ Update check failed for **%s**: %v", s.target, err)
 		} else {
 			s.setChecking(false, "")
 		}
@@ -210,8 +288,51 @@ func (s *Service) CheckAndUpdate(ctx context.Context) (err error) {
 		return nil
 	}
 
-	log.Printf("[UpdateWorker] Update detected: %s -> %s", oldImageID, newImage.ID)
-	return s.PerformUpdate(ctx, inspect)
+	s.mu.RLock()
+	if s.updateStatus.IsPending {
+		s.mu.RUnlock()
+		return nil
+	}
+	s.mu.RUnlock()
+
+	log.Printf("[UpdateWorker] Update detected: %s -> %s. Delaying 15m.", oldImageID, newImage.ID)
+	
+	pendingUntil := time.Now().Add(15 * time.Minute)
+	s.setPending(true, pendingUntil)
+	
+	s.notify("✨ New version detected for **%s**\n`%s` ➡️ `%s`\n\n🕒 **Update scheduled in 15 minutes.**", 
+		s.target, oldImageID[:12], newImage.ID[:12])
+
+	// Delayed execution
+	go func() { // #nosec G118
+		time.Sleep(15 * time.Minute)
+		
+		// Check if still pending (might have been cancelled or started manually if we add that)
+		s.mu.RLock()
+		isPending := s.updateStatus.IsPending
+		s.mu.RUnlock()
+		
+		if isPending {
+			// Perform update with a fresh context as the trigger context has expired
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute) // #nosec G118
+			defer cancel()
+			
+			// Re-fetch inspect to get latest state
+			latestInspect, err := s.cli.ContainerInspect(ctx, s.target)
+			if err != nil {
+				s.setPending(false, time.Time{})
+				s.notify("❌ Scheduled update failed for **%s**: could not re-inspect container", s.target)
+				return
+			}
+			
+			s.notify("🚀 **Update starting now** for **%s** after 15-minute delay", s.target)
+			if err := s.PerformUpdate(ctx, latestInspect); err != nil {
+				log.Printf("[UpdateWorker] Delayed update failed: %v", err)
+			}
+		}
+	}()
+
+	return nil
 }
 
 func (s *Service) PerformUpdate(ctx context.Context, oldInspect container.InspectResponse) (err error) {
@@ -219,6 +340,7 @@ func (s *Service) PerformUpdate(ctx context.Context, oldInspect container.Inspec
 	defer func() {
 		if err != nil {
 			s.setUpdating(false, "", err.Error())
+			s.notify("🚨 Update failed for **%s**: %v", s.target, err)
 		} else {
 			s.setUpdating(false, "", "")
 		}
@@ -263,5 +385,6 @@ func (s *Service) PerformUpdate(ctx context.Context, oldInspect container.Inspec
 	_, _ = s.cli.ImageRemove(ctx, oldInspect.Image, image.RemoveOptions{PruneChildren: true})
 
 	log.Printf("[UpdateWorker] Successfully updated %s", s.target)
+	s.notify("✅ Successfully updated **%s** to new image", s.target)
 	return nil
 }

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -49,11 +50,14 @@ func (m *mockDockerClient) ImageInspectWithRaw(ctx context.Context, imageID stri
 func (m *mockDockerClient) ImageRemove(ctx context.Context, imageID string, options image.RemoveOptions) ([]image.DeleteResponse, error) {
 	return nil, nil
 }
+func (m *mockDockerClient) Events(ctx context.Context, options events.ListOptions) (<-chan events.Message, <-chan error) {
+	return make(chan events.Message), make(chan error)
+}
 
 func TestService(t *testing.T) {
 	target := "soulmask-server"
 	mock := &mockDockerClient{}
-	svc := NewServiceWithClient(target, mock)
+	svc := NewServiceWithClient(target, mock, nil)
 
 	t.Run("GetStatus", func(t *testing.T) {
 		mock.inspectFunc = func(ctx context.Context, containerID string) (container.InspectResponse, error) {

@@ -14,6 +14,7 @@ import (
 	"soulmask-control/internal/auth"
 	"soulmask-control/internal/docker"
 	"soulmask-control/internal/middleware"
+	"soulmask-control/internal/notification"
 
 	"github.com/gorilla/mux"
 )
@@ -24,13 +25,21 @@ type Config struct {
 	TrustProxy      bool
 	AllowedOrigins  []string
 	Port            string
+	DiscordWebhook  string
 }
 
 func main() {
 	cfg := loadConfig()
 
+	// Initialize notification
+	var notifier notification.Notifier
+	if cfg.DiscordWebhook != "" {
+		notifier = notification.NewDiscordNotifier(cfg.DiscordWebhook)
+		log.Printf("[Main] Discord notifications enabled")
+	}
+
 	// Initialize services
-	dockerService, err := docker.NewService(cfg.TargetContainer)
+	dockerService, err := docker.NewService(cfg.TargetContainer, notifier)
 	if err != nil {
 		log.Fatalf("[Main] Failed to initialize Docker service: %v", err)
 	}
@@ -42,8 +51,9 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Start update worker
+	// Start background workers
 	go startUpdateWorker(ctx, dockerService)
+	go dockerService.ListenForEvents(ctx)
 
 	// Router setup
 	r := mux.NewRouter()
@@ -73,6 +83,9 @@ func main() {
 	// Server runner
 	go func() {
 		log.Printf("[Main] Soulmask Control starting on %s (Target: %s)", cfg.Port, cfg.TargetContainer)
+		if notifier != nil {
+			_ = notifier.Notify("🛠️ **Soulmask Control** starting up...")
+		}
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("[Main] Server error: %v", err)
 		}
@@ -92,6 +105,9 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Fatalf("[Main] Forced shutdown: %v", err)
 	}
+	if notifier != nil {
+		_ = notifier.Notify("💤 **Soulmask Control** shut down")
+	}
 	log.Println("[Main] Exited successfully")
 }
 
@@ -109,6 +125,7 @@ func loadConfig() Config {
 		TrustProxy:      os.Getenv("TRUST_PROXY") == "true",
 		AllowedOrigins:  strings.Split(os.Getenv("ALLOWED_ORIGINS"), ","),
 		Port:            port,
+		DiscordWebhook:  os.Getenv("DISCORD_WEBHOOK_URL"),
 	}
 }
 

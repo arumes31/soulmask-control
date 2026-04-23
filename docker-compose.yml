@@ -13,6 +13,7 @@ services:
       - ADMIN_PASSWORD=admin
       - TRUST_PROXY=true
       - ALLOWED_ORIGINS=http://localhost:8080,http://localhost:80,https://yourdomain.com
+      - DISCORD_WEBHOOK_URL=
     networks:
       - soulmask-network
       - proxy-tier # Optional network for reverse proxies

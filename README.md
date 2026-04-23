@@ -43,9 +43,10 @@ The application is split into a Go-based backend and a Vanilla JS/CSS frontend:
 ### Configuration
 Environment variables used by the server:
 - `ADMIN_PASSWORD`: The password required for UI access.
-- `DOCKER_TARGET`: The name or ID of the Soulmask container to manage.
+- `TARGET_CONTAINER`: The name or ID of the Soulmask container to manage.
 - `PORT`: (Optional) The port the web server listens on (default: 8080).
 - `TRUST_PROXY`: Set to `true` if running behind a reverse proxy (enables Secure cookies).
+- `DISCORD_WEBHOOK_URL`: (Optional) URL for Discord event notifications (server start/stop, container updates, etc.).
 
 ## 🛡️ Security
 
