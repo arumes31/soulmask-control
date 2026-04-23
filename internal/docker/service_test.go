@@ -47,6 +47,9 @@ func (m *mockDockerClient) ContainerCreate(ctx context.Context, config *containe
 func (m *mockDockerClient) ImageInspectWithRaw(ctx context.Context, imageID string) (types.ImageInspect, []byte, error) {
 	return types.ImageInspect{ID: "current-id"}, nil, nil
 }
+func (m *mockDockerClient) ImageRemove(ctx context.Context, imageID string, options image.RemoveOptions) ([]image.DeleteResponse, error) {
+	return nil, nil
+}
 
 func TestService(t *testing.T) {
 	target := "soulmask-server"

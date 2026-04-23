@@ -26,6 +26,7 @@ type DockerClient interface {
 	ContainerRemove(ctx context.Context, containerID string, options container.RemoveOptions) error
 	ContainerCreate(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *ocispec.Platform, containerName string) (container.CreateResponse, error)
 	ImageInspectWithRaw(ctx context.Context, imageID string) (types.ImageInspect, []byte, error)
+	ImageRemove(ctx context.Context, imageID string, options image.RemoveOptions) ([]image.DeleteResponse, error)
 }
 
 type ContainerInfo struct {
@@ -226,5 +227,13 @@ func (s *Service) PerformUpdate(ctx context.Context, oldInspect types.ContainerJ
 	}
 	
 	log.Printf("Container %s updated and restarted", s.target)
+
+	// 5. Cleanup old image
+	log.Printf("Cleaning up old image %s", oldInspect.Image)
+	_, err = s.cli.ImageRemove(ctx, oldInspect.Image, image.RemoveOptions{PruneChildren: true})
+	if err != nil {
+		log.Printf("Warning: failed to remove old image %s: %v", oldInspect.Image, err)
+	}
+
 	return nil
 }
