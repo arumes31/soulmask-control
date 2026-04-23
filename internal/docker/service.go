@@ -180,15 +180,19 @@ func (s *Service) GetStatus(ctx context.Context) (*ContainerInfo, error) {
 		return nil, err
 	}
 
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	if s.updateStatus.CurrentVersion == "" {
+		s.updateStatus.CurrentVersion = inspect.Image
+	}
+	updateStatus := s.updateStatus
+	s.mu.Unlock()
 
 	return &ContainerInfo{
 		ID:           inspect.ID[:12],
 		Status:       inspect.State.Status,
 		Image:        inspect.Config.Image,
 		ImageID:      inspect.Image,
-		UpdateStatus: s.updateStatus,
+		UpdateStatus: updateStatus,
 	}, nil
 }
 
