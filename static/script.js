@@ -22,19 +22,34 @@ async function updateStatus() {
         const btnStart = document.getElementById('btn-start');
         const btnStop = document.getElementById('btn-stop');
         const btnRestart = document.getElementById('btn-restart');
+        
+        const isUpdatingOrPending = data.updateStatus && (data.updateStatus.isUpdating || data.updateStatus.isPending);
 
-        if (data.status === 'running') {
-            statusBadge.className = 'px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-tighter bg-green-500/20 text-green-500 border border-green-500/30';
+        if (isUpdatingOrPending) {
             btnStart.disabled = true;
             btnStart.classList.add('opacity-50', 'cursor-not-allowed');
-            btnStop.disabled = false;
-            btnStop.classList.remove('opacity-50', 'cursor-not-allowed');
-        } else {
-            statusBadge.className = 'px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-tighter bg-red-500/20 text-red-500 border border-red-500/30';
-            btnStart.disabled = false;
-            btnStart.classList.remove('opacity-50', 'cursor-not-allowed');
             btnStop.disabled = true;
             btnStop.classList.add('opacity-50', 'cursor-not-allowed');
+            btnRestart.disabled = true;
+            btnRestart.classList.add('opacity-50', 'cursor-not-allowed');
+            statusBadge.className = 'px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-tighter bg-blue-500/20 text-blue-500 border border-blue-500/30';
+            statusBadge.textContent = data.updateStatus.isUpdating ? 'UPDATING...' : 'PENDING UPDATE';
+        } else {
+            btnRestart.disabled = false;
+            btnRestart.classList.remove('opacity-50', 'cursor-not-allowed');
+            if (data.status === 'running') {
+                statusBadge.className = 'px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-tighter bg-green-500/20 text-green-500 border border-green-500/30';
+                btnStart.disabled = true;
+                btnStart.classList.add('opacity-50', 'cursor-not-allowed');
+                btnStop.disabled = false;
+                btnStop.classList.remove('opacity-50', 'cursor-not-allowed');
+            } else {
+                statusBadge.className = 'px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-tighter bg-red-500/20 text-red-500 border border-red-500/30';
+                btnStart.disabled = false;
+                btnStart.classList.remove('opacity-50', 'cursor-not-allowed');
+                btnStop.disabled = true;
+                btnStop.classList.add('opacity-50', 'cursor-not-allowed');
+            }
         }
 
         document.getElementById('container-id').textContent = data.id || '--------';
