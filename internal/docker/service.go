@@ -30,6 +30,7 @@ type DockerClient interface {
 	ImageInspectWithRaw(ctx context.Context, imageID string) (image.InspectResponse, []byte, error)
 	ImageRemove(ctx context.Context, imageID string, options image.RemoveOptions) ([]image.DeleteResponse, error)
 	Events(ctx context.Context, options events.ListOptions) (<-chan events.Message, <-chan error)
+	ContainerStats(ctx context.Context, containerID string, stream bool) (container.StatsResponseReader, error)
 }
 
 type ContainerInfo struct {
@@ -38,6 +39,15 @@ type ContainerInfo struct {
 	Image        string       `json:"image"`
 	ImageID      string       `json:"imageId"`
 	UpdateStatus UpdateStatus `json:"updateStatus"`
+	Stats        *Stats       `json:"stats,omitempty"`
+}
+
+type Stats struct {
+	CPUPercentage float64 `json:"cpuPercentage"`
+	MemoryUsage   uint64  `json:"memoryUsage"`
+	MemoryLimit   uint64  `json:"memoryLimit"`
+	DiskRead      uint64  `json:"diskRead"`
+	DiskWrite     uint64  `json:"diskWrite"`
 }
 
 type UpdateStatus struct {
@@ -188,12 +198,59 @@ func (s *Service) GetStatus(ctx context.Context) (*ContainerInfo, error) {
 	updateStatus := s.updateStatus
 	s.mu.Unlock()
 
+	var stats *Stats
+	if inspect.State.Running {
+		stats, _ = s.getStats(ctx)
+	}
+
 	return &ContainerInfo{
 		ID:           inspect.ID[:12],
 		Status:       inspect.State.Status,
 		Image:        inspect.Config.Image,
 		ImageID:      inspect.Image,
 		UpdateStatus: updateStatus,
+		Stats:        stats,
+	}, nil
+}
+
+func (s *Service) getStats(ctx context.Context) (*Stats, error) {
+	resp, err := s.cli.ContainerStats(ctx, s.target, false)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var v container.Stats
+	if err := json.NewDecoder(resp.Body).Decode(&v); err != nil {
+		return nil, err
+	}
+
+	cpuPercent := 0.0
+	cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage) - float64(v.PreCPUStats.CPUUsage.TotalUsage)
+	systemDelta := float64(v.CPUStats.SystemUsage) - float64(v.PreCPUStats.SystemUsage)
+	onlineCPUs := float64(v.CPUStats.OnlineCPUs)
+	if onlineCPUs == 0 {
+		onlineCPUs = float64(len(v.CPUStats.CPUUsage.PercpuUsage))
+	}
+	if systemDelta > 0.0 && cpuDelta > 0.0 {
+		cpuPercent = (cpuDelta / systemDelta) * onlineCPUs * 100.0
+	}
+
+	var rx, tx uint64
+	for _, blk := range v.BlkioStats.IoServiceBytesRecursive {
+		if blk.Op == "Read" {
+			rx += blk.Value
+		} else if blk.Op == "Write" {
+			tx += blk.Value
+		}
+	}
+
+	return &Stats{
+		CPUPercentage: cpuPercent,
+		MemoryUsage:   v.MemoryStats.Usage,
+		MemoryLimit:   v.MemoryStats.Limit,
+		DiskRead:      rx,
+		DiskWrite:     tx,
 	}, nil
 }
 
