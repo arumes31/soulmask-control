@@ -51,8 +51,9 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Start update worker
+	// Start background workers
 	go startUpdateWorker(ctx, dockerService)
+	go dockerService.ListenForEvents(ctx)
 
 	// Router setup
 	r := mux.NewRouter()

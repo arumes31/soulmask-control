@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
@@ -28,6 +29,7 @@ type DockerClient interface {
 	ContainerCreate(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *ocispec.Platform, containerName string) (container.CreateResponse, error)
 	ImageInspectWithRaw(ctx context.Context, imageID string) (image.InspectResponse, []byte, error)
 	ImageRemove(ctx context.Context, imageID string, options image.RemoveOptions) ([]image.DeleteResponse, error)
+	Events(ctx context.Context, options events.ListOptions) (<-chan events.Message, <-chan error)
 }
 
 type ContainerInfo struct {
@@ -108,6 +110,51 @@ func (s *Service) notify(format string, args ...interface{}) {
 	}
 }
 
+func (s *Service) ListenForEvents(ctx context.Context) {
+	msgs, errs := s.cli.Events(ctx, events.ListOptions{})
+	
+	log.Printf("[Events] Started listening for Docker events on %s", s.target)
+
+	for {
+		select {
+		case err := <-errs:
+			if err != nil && err != io.EOF && ctx.Err() == nil {
+				log.Printf("[Events] Error: %v", err)
+				// Reconnect after delay
+				time.Sleep(5 * time.Second)
+				msgs, errs = s.cli.Events(ctx, events.ListOptions{})
+			}
+		case msg := <-msgs:
+			if msg.Type != events.ContainerEventType {
+				continue
+			}
+			
+			// Match by ID or Name (target is name in this app)
+			if msg.Actor.Attributes["name"] != s.target && msg.Actor.ID[:12] != s.target[:12] && msg.Actor.ID != s.target {
+				continue
+			}
+
+			switch msg.Action {
+			case "start":
+				s.notify("🚀 Container **%s** started", s.target)
+			case "stop":
+				s.notify("🛑 Container **%s** stopped", s.target)
+			case "die":
+				// If it wasn't a clean stop
+				if msg.Actor.Attributes["exitCode"] != "0" {
+					s.notify("💀 Container **%s** crashed (Exit Code: %s)", s.target, msg.Actor.Attributes["exitCode"])
+				}
+			case "oom":
+				s.notify("🚨 Container **%s** ran out of memory!", s.target)
+			case "restart":
+				s.notify("🔄 Container **%s** restarted", s.target)
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
 func (s *Service) GetStatus(ctx context.Context) (*ContainerInfo, error) {
 	inspect, err := s.cli.ContainerInspect(ctx, s.target)
 	if err != nil {
@@ -127,27 +174,15 @@ func (s *Service) GetStatus(ctx context.Context) (*ContainerInfo, error) {
 }
 
 func (s *Service) Start(ctx context.Context) error {
-	err := s.cli.ContainerStart(ctx, s.target, container.StartOptions{})
-	if err == nil {
-		s.notify("🚀 Container **%s** started", s.target)
-	}
-	return err
+	return s.cli.ContainerStart(ctx, s.target, container.StartOptions{})
 }
 
 func (s *Service) Stop(ctx context.Context) error {
-	err := s.cli.ContainerStop(ctx, s.target, container.StopOptions{})
-	if err == nil {
-		s.notify("🛑 Container **%s** stopped", s.target)
-	}
-	return err
+	return s.cli.ContainerStop(ctx, s.target, container.StopOptions{})
 }
 
 func (s *Service) Restart(ctx context.Context) error {
-	err := s.cli.ContainerRestart(ctx, s.target, container.StopOptions{})
-	if err == nil {
-		s.notify("🔄 Container **%s** restarted", s.target)
-	}
-	return err
+	return s.cli.ContainerRestart(ctx, s.target, container.StopOptions{})
 }
 
 func (s *Service) Logs(ctx context.Context, tail string) (io.ReadCloser, error) {
