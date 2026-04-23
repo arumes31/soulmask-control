@@ -51,7 +51,7 @@ func (d *DiscordNotifier) Notify(message string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("discord notification failed with status: %d", resp.StatusCode)
