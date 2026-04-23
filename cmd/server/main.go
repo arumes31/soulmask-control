@@ -55,6 +55,7 @@ func main() {
 	// Start background workers
 	go startUpdateWorker(ctx, dockerService)
 	go dockerService.ListenForEvents(ctx)
+	go dockerService.StartLatencyMonitor(ctx)
 
 	// Router setup
 	r := mux.NewRouter()
@@ -127,7 +128,7 @@ func loadConfig() Config {
 		AllowedOrigins:  strings.Split(os.Getenv("ALLOWED_ORIGINS"), ","),
 		Port:            port,
 		DiscordWebhook:  os.Getenv("DISCORD_WEBHOOK_URL"),
-		SteamAppID:      getEnv("STEAM_APP_ID", "2401390"),
+		SteamAppID:      getEnv("STEAM_APP_ID", "2886870"),
 	}
 }
 
