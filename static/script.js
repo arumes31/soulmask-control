@@ -1,5 +1,6 @@
 let ws;
 let reconnectInterval = 3000;
+let pendingTimerInterval = null;
 
 async function logout() {
     await fetch('/logout', { method: 'POST' });
@@ -79,6 +80,9 @@ async function updateStatus() {
                 }
             }
 
+            const banner = document.getElementById('update-pending-banner');
+            const countdownText = document.getElementById('update-countdown-text');
+
             if (us.isUpdating) {
                 updateBadge.textContent = 'Updating';
                 updateBadge.className = 'px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-tighter bg-blue-500/20 text-blue-500 border border-blue-500/30';
@@ -87,6 +91,8 @@ async function updateStatus() {
                 progressText.textContent = us.progress || 'Updating...';
                 btnCheck.disabled = true;
                 btnCheck.classList.add('opacity-50', 'cursor-not-allowed');
+                banner.classList.add('hidden');
+                if (pendingTimerInterval) clearInterval(pendingTimerInterval);
             } else if (us.isPending) {
                 const pendingDate = new Date(us.pendingTime);
                 updateBadge.textContent = 'Pending';
@@ -96,18 +102,48 @@ async function updateStatus() {
                 progressText.textContent = `Scheduled for ${pendingDate.toLocaleTimeString()}`;
                 btnCheck.disabled = true;
                 btnCheck.classList.add('opacity-50', 'cursor-not-allowed');
+
+                // Start/Update Banner Countdown
+                banner.classList.remove('hidden');
+                if (!pendingTimerInterval) {
+                    const target = pendingDate.getTime();
+                    const refresh = () => {
+                        const diff = target - new Date().getTime();
+                        if (diff <= 0) {
+                            banner.classList.add('hidden');
+                            clearInterval(pendingTimerInterval);
+                            pendingTimerInterval = null;
+                            return;
+                        }
+                        const mins = Math.floor(diff / 60000);
+                        const secs = Math.floor((diff % 60000) / 1000);
+                        countdownText.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+                    };
+                    refresh();
+                    pendingTimerInterval = setInterval(refresh, 1000);
+                }
             } else if (us.isChecking) {
                 updateBadge.textContent = 'Checking';
                 updateBadge.className = 'px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-tighter bg-yellow-500/20 text-yellow-500 border border-yellow-500/30';
                 progressContainer.classList.add('hidden');
                 btnCheck.disabled = true;
                 btnCheck.classList.add('opacity-50', 'cursor-not-allowed');
+                banner.classList.add('hidden');
+                if (pendingTimerInterval) {
+                    clearInterval(pendingTimerInterval);
+                    pendingTimerInterval = null;
+                }
             } else {
                 updateBadge.textContent = 'Idle';
                 updateBadge.className = 'px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-tighter bg-gray-800';
                 progressContainer.classList.add('hidden');
                 btnCheck.disabled = false;
                 btnCheck.classList.remove('opacity-50', 'cursor-not-allowed');
+                banner.classList.add('hidden');
+                if (pendingTimerInterval) {
+                    clearInterval(pendingTimerInterval);
+                    pendingTimerInterval = null;
+                }
             }
 
             if (us.error) {

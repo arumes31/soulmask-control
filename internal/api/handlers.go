@@ -91,6 +91,8 @@ func (a *API) ActionHandler(w http.ResponseWriter, r *http.Request) {
 		err = a.docker.Stop(r.Context())
 	case "restart":
 		err = a.docker.Restart(r.Context())
+	case "update-now":
+		err = a.docker.UpdateNow(r.Context())
 	default:
 		http.Error(w, "Invalid action", http.StatusBadRequest)
 		return

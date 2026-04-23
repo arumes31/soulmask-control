@@ -58,6 +58,7 @@ type Service struct {
 	mu           sync.RWMutex
 	updateStatus UpdateStatus
 	notifier     notification.Notifier
+	pendingCancel context.CancelFunc
 }
 
 func (s *Service) setChecking(checking bool, errStr string) {
@@ -314,36 +315,66 @@ func (s *Service) CheckAndUpdate(ctx context.Context) (err error) {
 	s.notify("✨ New version detected for **%s**\n`%s` ➡️ `%s`\n\n🕒 **Update scheduled in 15 minutes.**", 
 		s.target, oldImageID[:12], newImage.ID[:12])
 
+	// Create a cancelable context for the pending update
+	pCtx, pCancel := context.WithCancel(context.Background())
+	s.mu.Lock()
+	if s.pendingCancel != nil {
+		s.pendingCancel()
+	}
+	s.pendingCancel = pCancel
+	s.mu.Unlock()
+
 	// Delayed execution
 	go func() { // #nosec G118
-		time.Sleep(15 * time.Minute)
+		timer := time.NewTimer(15 * time.Minute)
+		defer timer.Stop()
+
+		select {
+		case <-timer.C:
+			// Proceed with update
+		case <-pCtx.Done():
+			// Cancelled (either by UpdateNow or another check)
+			return
+		}
 		
-		// Check if still pending (might have been cancelled or started manually if we add that)
-		s.mu.RLock()
-		isPending := s.updateStatus.IsPending
-		s.mu.RUnlock()
+		// Perform update with a fresh context
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute) // #nosec G118
+		defer cancel()
 		
-		if isPending {
-			// Perform update with a fresh context as the trigger context has expired
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute) // #nosec G118
-			defer cancel()
-			
-			// Re-fetch inspect to get latest state
-			latestInspect, err := s.cli.ContainerInspect(ctx, s.target)
-			if err != nil {
-				s.setPending(false, time.Time{})
-				s.notify("❌ Scheduled update failed for **%s**: could not re-inspect container", s.target)
-				return
-			}
-			
-			s.notify("🚀 **Update starting now** for **%s** after 15-minute delay", s.target)
-			if err := s.PerformUpdate(ctx, latestInspect); err != nil {
-				log.Printf("[UpdateWorker] Delayed update failed: %v", err)
-			}
+		latestInspect, err := s.cli.ContainerInspect(ctx, s.target)
+		if err != nil {
+			s.setPending(false, time.Time{})
+			s.notify("❌ Scheduled update failed for **%s**: could not re-inspect container", s.target)
+			return
+		}
+		
+		s.notify("🚀 **Update starting now** for **%s** after 15-minute delay", s.target)
+		if err := s.PerformUpdate(ctx, latestInspect); err != nil {
+			log.Printf("[UpdateWorker] Delayed update failed: %v", err)
 		}
 	}()
 
 	return nil
+}
+
+func (s *Service) UpdateNow(ctx context.Context) error {
+	s.mu.Lock()
+	if !s.updateStatus.IsPending {
+		s.mu.Unlock()
+		return fmt.Errorf("no update pending")
+	}
+	if s.pendingCancel != nil {
+		s.pendingCancel()
+		s.pendingCancel = nil
+	}
+	s.mu.Unlock()
+
+	inspect, err := s.cli.ContainerInspect(ctx, s.target)
+	if err != nil {
+		return err
+	}
+
+	return s.PerformUpdate(ctx, inspect)
 }
 
 func (s *Service) PerformUpdate(ctx context.Context, oldInspect container.InspectResponse) (err error) {

@@ -44,6 +44,24 @@
     </style>
 </head>
 <body class="min-h-screen font-sans">
+    <!-- Update Pending Banner -->
+    <div id="update-pending-banner" class="hidden sticky top-0 z-[60] bg-gradient-to-r from-purple-600 to-indigo-600 text-white p-3 flex justify-center items-center gap-6 shadow-2xl border-b border-white/10">
+        <div class="flex items-center gap-3">
+            <div class="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center animate-pulse">
+                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" /></svg>
+            </div>
+            <span class="text-[10px] font-black uppercase tracking-widest">Patch Identified</span>
+        </div>
+        <div class="h-6 w-px bg-white/20"></div>
+        <div class="flex items-center gap-2">
+            <span class="text-[10px] text-purple-200 uppercase font-bold">Autorecreation:</span>
+            <span id="update-countdown-text" class="text-sm font-mono font-bold">14:59</span>
+        </div>
+        <button onclick="executeAction('update-now')" class="px-4 py-1.5 bg-white text-purple-600 text-[10px] font-black uppercase rounded-xl hover:bg-purple-50 transition-all active:scale-95 shadow-lg shadow-black/20">
+            Apply Now
+        </button>
+    </div>
+
     <div id="dashboard" class="p-4 md:p-8">
         <header class="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center mb-12 gap-4">
             <div class="flex items-center gap-4">
