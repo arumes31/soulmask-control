@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"time"
+	"encoding/binary"
 
 	"soulmask-control/internal/docker"
 
@@ -95,14 +96,14 @@ func (a *API) LogsHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[API] WebSocket upgrade failed: %v", err)
 		return
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	reader, err := a.docker.Logs(r.Context(), "100")
 	if err != nil {
 		_ = conn.WriteMessage(websocket.TextMessage, []byte("Error reading logs: "+err.Error()))
 		return
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	// Drain reads to handle client closes
 	go func() {
@@ -140,7 +141,7 @@ func stripDockerHeader(data []byte) []byte {
 		}
 
 		// Docker header: [stream_type, 0, 0, 0, size1, size2, size3, size4]
-		size := int(data[i+4])<<24 | int(data[i+5])<<16 | int(data[i+6])<<8 | int(data[i+7])
+		size := int(binary.BigEndian.Uint32(data[i+4 : i+8]))
 		start := i + 8
 		end := start + size
 

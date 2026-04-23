@@ -139,7 +139,7 @@ func (s *Service) PullImage(ctx context.Context, imageRef string) error {
 	if err != nil {
 		return err
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	decoder := json.NewDecoder(reader)
 	for {
