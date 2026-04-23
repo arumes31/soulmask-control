@@ -5,7 +5,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"soulmask-control/internal/api"
@@ -40,13 +42,16 @@ func main() {
 	authenticator := auth.NewAuthenticator(adminPassword, trustProxy)
 	apiServer := api.NewAPI(dockerService, allowedOrigins)
 
+	// Handle graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// Start update worker
-	startUpdateWorker(dockerService)
+	go startUpdateWorker(ctx, dockerService)
 
 	// Router setup
 	r := mux.NewRouter()
-
-	// Global Middleware
+	// ... (rest of router setup)
 	r.Use(middleware.IPMiddleware(trustProxy))
 	r.Use(middleware.LoggingMiddleware)
 
@@ -91,21 +96,48 @@ func main() {
 		ReadTimeout:  15 * time.Second,
 	}
 
-	log.Println("Soulmask Control starting on :8080")
-	log.Fatal(srv.ListenAndServe())
+	go func() {
+		log.Println("Soulmask Control starting on :8080")
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("listen: %s\n", err)
+		}
+	}()
+
+	// Wait for interrupt signal
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	<-stop
+
+	log.Println("Shutting down server...")
+	cancel() // Stop worker
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Fatalf("Server forced to shutdown: %v", err)
+	}
+
+	log.Println("Server exiting")
 }
 
-func startUpdateWorker(svc *docker.Service) {
+func startUpdateWorker(ctx context.Context, svc *docker.Service) {
 	ticker := time.NewTicker(15 * time.Minute)
-	go func() {
-		log.Println("Update worker started (15m interval)")
-		for range ticker.C {
+	defer ticker.Stop()
+
+	log.Println("Update worker started (15m interval)")
+	for {
+		select {
+		case <-ticker.C:
 			log.Println("Starting scheduled update check...")
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-			if err := svc.CheckAndUpdate(ctx); err != nil {
+			workCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+			if err := svc.CheckAndUpdate(workCtx); err != nil {
 				log.Printf("Scheduled update check failed: %v", err)
 			}
 			cancel()
+		case <-ctx.Done():
+			log.Println("Update worker shutting down")
+			return
 		}
-	}()
+	}
 }

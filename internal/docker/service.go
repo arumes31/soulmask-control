@@ -51,6 +51,27 @@ type Service struct {
 	updateStatus UpdateStatus
 }
 
+func (s *Service) setChecking(checking bool, errStr string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.updateStatus.IsChecking = checking
+	if checking {
+		s.updateStatus.Error = ""
+	} else {
+		s.updateStatus.LastCheck = time.Now()
+	}
+	if errStr != "" {
+		s.updateStatus.Error = errStr
+	}
+}
+
+func (s *Service) setUpdating(updating bool, progress string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.updateStatus.IsUpdating = updating
+	s.updateStatus.Progress = progress
+}
+
 func NewService(target string) (*Service, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
@@ -125,16 +146,10 @@ func (s *Service) CheckAndUpdate(ctx context.Context) error {
 		s.mu.Unlock()
 		return nil
 	}
-	s.updateStatus.IsChecking = true
-	s.updateStatus.Error = ""
 	s.mu.Unlock()
 
-	defer func() {
-		s.mu.Lock()
-		s.updateStatus.IsChecking = false
-		s.updateStatus.LastCheck = time.Now()
-		s.mu.Unlock()
-	}()
+	s.setChecking(true, "")
+	defer s.setChecking(false, "")
 
 	inspect, err := s.cli.ContainerInspect(ctx, s.target)
 	if err != nil {
@@ -147,9 +162,7 @@ func (s *Service) CheckAndUpdate(ctx context.Context) error {
 	log.Printf("Checking for updates for image %s (current ID: %s)", imageRef, oldImageID)
 
 	if err := s.PullImage(ctx, imageRef); err != nil {
-		s.mu.Lock()
-		s.updateStatus.Error = fmt.Sprintf("Failed to pull image: %v", err)
-		s.mu.Unlock()
+		s.setChecking(false, fmt.Sprintf("Failed to pull image: %v", err))
 		return err
 	}
 
@@ -169,16 +182,8 @@ func (s *Service) CheckAndUpdate(ctx context.Context) error {
 }
 
 func (s *Service) PerformUpdate(ctx context.Context, oldInspect container.InspectResponse) error {
-	s.mu.Lock()
-	s.updateStatus.IsUpdating = true
-	s.updateStatus.Progress = "Updating container..."
-	s.mu.Unlock()
-
-	defer func() {
-		s.mu.Lock()
-		s.updateStatus.IsUpdating = false
-		s.mu.Unlock()
-	}()
+	s.setUpdating(true, "Updating container...")
+	defer s.setUpdating(false, "")
 
 	// Check if image ID changed
 	_, err := s.cli.ContainerInspect(ctx, s.target)
