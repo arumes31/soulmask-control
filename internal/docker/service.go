@@ -41,11 +41,13 @@ type ContainerInfo struct {
 }
 
 type UpdateStatus struct {
-	IsChecking bool      `json:"isChecking"`
-	IsUpdating bool      `json:"isUpdating"`
-	LastCheck  time.Time `json:"lastCheck"`
-	Error      string    `json:"error"`
-	Progress   string    `json:"progress"`
+	IsChecking  bool      `json:"isChecking"`
+	IsUpdating  bool      `json:"isUpdating"`
+	IsPending   bool      `json:"isPending"`
+	PendingTime time.Time `json:"pendingTime"`
+	LastCheck   time.Time `json:"lastCheck"`
+	Error       string    `json:"error"`
+	Progress    string    `json:"progress"`
 }
 
 type Service struct {
@@ -76,8 +78,23 @@ func (s *Service) setUpdating(updating bool, progress string, errStr string) {
 	defer s.mu.Unlock()
 	s.updateStatus.IsUpdating = updating
 	s.updateStatus.Progress = progress
+	if updating {
+		s.updateStatus.IsPending = false
+	}
 	if errStr != "" {
 		s.updateStatus.Error = errStr
+	}
+}
+
+func (s *Service) setPending(pending bool, t time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.updateStatus.IsPending = pending
+	s.updateStatus.PendingTime = t
+	if pending {
+		s.updateStatus.Progress = "Update scheduled"
+	} else {
+		s.updateStatus.Progress = ""
 	}
 }
 
@@ -271,9 +288,51 @@ func (s *Service) CheckAndUpdate(ctx context.Context) (err error) {
 		return nil
 	}
 
-	log.Printf("[UpdateWorker] Update detected: %s -> %s", oldImageID, newImage.ID)
-	s.notify("✨ New version detected for **%s**\n`%s` ➡️ `%s`", s.target, oldImageID[:12], newImage.ID[:12])
-	return s.PerformUpdate(ctx, inspect)
+	s.mu.RLock()
+	if s.updateStatus.IsPending {
+		s.mu.RUnlock()
+		return nil
+	}
+	s.mu.RUnlock()
+
+	log.Printf("[UpdateWorker] Update detected: %s -> %s. Delaying 15m.", oldImageID, newImage.ID)
+	
+	pendingUntil := time.Now().Add(15 * time.Minute)
+	s.setPending(true, pendingUntil)
+	
+	s.notify("✨ New version detected for **%s**\n`%s` ➡️ `%s`\n\n🕒 **Update scheduled in 15 minutes.**", 
+		s.target, oldImageID[:12], newImage.ID[:12])
+
+	// Delayed execution
+	go func() { // #nosec G118
+		time.Sleep(15 * time.Minute)
+		
+		// Check if still pending (might have been cancelled or started manually if we add that)
+		s.mu.RLock()
+		isPending := s.updateStatus.IsPending
+		s.mu.RUnlock()
+		
+		if isPending {
+			// Perform update with a fresh context as the trigger context has expired
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute) // #nosec G118
+			defer cancel()
+			
+			// Re-fetch inspect to get latest state
+			latestInspect, err := s.cli.ContainerInspect(ctx, s.target)
+			if err != nil {
+				s.setPending(false, time.Time{})
+				s.notify("❌ Scheduled update failed for **%s**: could not re-inspect container", s.target)
+				return
+			}
+			
+			s.notify("🚀 **Update starting now** for **%s** after 15-minute delay", s.target)
+			if err := s.PerformUpdate(ctx, latestInspect); err != nil {
+				log.Printf("[UpdateWorker] Delayed update failed: %v", err)
+			}
+		}
+	}()
+
+	return nil
 }
 
 func (s *Service) PerformUpdate(ctx context.Context, oldInspect container.InspectResponse) (err error) {

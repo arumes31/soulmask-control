@@ -60,6 +60,15 @@ async function updateStatus() {
                 progressText.textContent = us.progress || 'Updating...';
                 btnCheck.disabled = true;
                 btnCheck.classList.add('opacity-50', 'cursor-not-allowed');
+            } else if (us.isPending) {
+                const pendingDate = new Date(us.pendingTime);
+                updateBadge.textContent = 'Pending';
+                updateBadge.className = 'px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-tighter bg-purple-500/20 text-purple-500 border border-purple-500/30';
+                progressContainer.classList.remove('hidden');
+                progressBar.style.width = '100%';
+                progressText.textContent = `Scheduled for ${pendingDate.toLocaleTimeString()}`;
+                btnCheck.disabled = true;
+                btnCheck.classList.add('opacity-50', 'cursor-not-allowed');
             } else if (us.isChecking) {
                 updateBadge.textContent = 'Checking';
                 updateBadge.className = 'px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-tighter bg-yellow-500/20 text-yellow-500 border border-yellow-500/30';
