@@ -295,7 +295,7 @@ function connectLogs() {
     ws.onopen = () => {
         const div = document.createElement('div');
         div.className = 'text-green-500 font-bold border-l-2 border-green-500 pl-2 my-2 animate-pulse';
-        div.textContent = `[${new Date().toLocaleTimeString()}] UPLINK_ESTABLISHED: STREAM_CONNECTED (NEWEST AT TOP)`;
+        div.textContent = `UPLINK_ESTABLISHED: STREAM_CONNECTED (NEWEST AT TOP)`;
         terminal.prepend(div);
         connStatus.innerHTML = '<div class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div><span class="text-xs font-medium text-gray-300 uppercase tracking-tighter">Live Stream Active</span>';
     };
@@ -310,15 +310,10 @@ function connectLogs() {
                 line.classList.add('bg-red-500/5', 'border-red-500/30');
             }
 
-            const timeSpan = document.createElement('span');
-            timeSpan.className = 'text-gray-600 mr-3 text-[10px] select-none font-mono shrink-0 pt-0.5';
-            timeSpan.textContent = new Date().toLocaleTimeString([], {hour12: false});
-            
             const contentSpan = document.createElement('span');
             contentSpan.className = data.type === 'stderr' ? 'text-red-400 font-mono text-sm' : 'text-gray-300 font-mono text-sm';
             contentSpan.textContent = data.content;
             
-            line.appendChild(timeSpan);
             line.appendChild(contentSpan);
             terminal.prepend(line);
             
