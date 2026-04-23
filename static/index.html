@@ -107,9 +107,21 @@
                     </div>
                     
                     <div class="space-y-4">
-                        <div>
-                            <p class="text-[10px] text-gray-600 uppercase font-bold">Last Check</p>
-                            <p id="last-check-time" class="text-xs text-gray-400">Never</p>
+                        <div class="grid grid-cols-1 gap-4">
+                            <div>
+                                <p class="text-[10px] text-gray-600 uppercase font-bold">Last Check</p>
+                                <p id="last-check-time" class="text-xs text-gray-400">Never</p>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2 p-3 bg-black/20 rounded-2xl border border-gray-800/50">
+                                <div>
+                                    <p class="text-[10px] text-gray-600 uppercase font-bold mb-1">Installed</p>
+                                    <p id="current-version-sha" class="font-mono text-[10px] text-gray-500 truncate">--------</p>
+                                </div>
+                                <div>
+                                    <p class="text-[10px] text-gray-600 uppercase font-bold mb-1">Remote</p>
+                                    <p id="latest-version-sha" class="font-mono text-[10px] text-gray-500 truncate">--------</p>
+                                </div>
+                            </div>
                         </div>
                         <div id="update-progress-container" class="hidden">
                              <div class="w-full bg-gray-800 rounded-full h-1.5 mb-2 overflow-hidden">
