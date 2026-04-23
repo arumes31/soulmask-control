@@ -142,6 +142,18 @@ func (a *API) LogsHandler(w http.ResponseWriter, r *http.Request) {
 	stdout := &wsWriter{conn: conn, stream: "stdout"}
 	stderr := &wsWriter{conn: conn, stream: "stderr"}
 
+	// Heartbeat (Ping) ticker
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	go func() {
+		for range ticker.C {
+			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
+		}
+	}()
+
 	// stdcopy.StdCopy will demultiplex the Docker log stream
 	if _, err := stdcopy.StdCopy(stdout, stderr, reader); err != nil {
 		log.Printf("[API] Log streaming ended: %v", err)
