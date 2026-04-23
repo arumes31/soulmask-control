@@ -280,7 +280,7 @@ func (s *Service) getStats(ctx context.Context) (*Stats, error) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	var v container.Stats
+	var v container.StatsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&v); err != nil {
 		return nil, err
 	}
@@ -298,9 +298,10 @@ func (s *Service) getStats(ctx context.Context) (*Stats, error) {
 
 	var rx, tx uint64
 	for _, blk := range v.BlkioStats.IoServiceBytesRecursive {
-		if blk.Op == "Read" {
+		switch blk.Op {
+		case "Read":
 			rx += blk.Value
-		} else if blk.Op == "Write" {
+		case "Write":
 			tx += blk.Value
 		}
 	}
