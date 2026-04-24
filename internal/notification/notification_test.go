@@ -79,7 +79,7 @@ func TestNotify(t *testing.T) {
 	}
 
 	// Test connection error
-	n = NewDiscordNotifier("http://invalid-url-that-does-not-exist.local")
+	n = NewDiscordNotifier("http://invalid-url-that-does-not-exist.invalid")
 	err = n.Notify("test message")
 	if err == nil {
 		t.Errorf("Expected error for connection failure")

@@ -20,6 +20,7 @@ type mockDockerClient struct {
 	inspectFunc    func(ctx context.Context, containerID string) (container.InspectResponse, error)
 	startFunc      func(ctx context.Context, containerID string, options container.StartOptions) error
 	stopFunc       func(ctx context.Context, containerID string, options container.StopOptions) error
+	restartFunc    func(ctx context.Context, containerID string, options container.StopOptions) error
 	statsFunc      func(ctx context.Context, containerID string, stream bool) (container.StatsResponseReader, error)
 	removeFunc     func(ctx context.Context, containerID string, options container.RemoveOptions) error
 	createFunc     func(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *ocispec.Platform, containerName string) (container.CreateResponse, error)
@@ -57,6 +58,9 @@ func (m *mockDockerClient) ContainerStop(ctx context.Context, containerID string
 	return nil
 }
 func (m *mockDockerClient) ContainerRestart(ctx context.Context, containerID string, options container.StopOptions) error {
+	if m.restartFunc != nil {
+		return m.restartFunc(ctx, containerID, options)
+	}
 	return nil
 }
 func (m *mockDockerClient) ContainerLogs(ctx context.Context, containerID string, options container.LogsOptions) (io.ReadCloser, error) {
@@ -167,8 +171,16 @@ func TestService(t *testing.T) {
 	})
 
 	t.Run("Restart", func(t *testing.T) {
+		called := false
+		mock.restartFunc = func(ctx context.Context, containerID string, options container.StopOptions) error {
+			called = true
+			return nil
+		}
 		if err := svc.Restart(context.Background()); err != nil {
 			t.Errorf("Unexpected error: %v", err)
+		}
+		if !called {
+			t.Error("ContainerRestart was not called")
 		}
 	})
 
@@ -381,11 +393,7 @@ func TestGetStats(t *testing.T) {
 }
 
 func TestGetStatsError(t *testing.T) {
-	mockErrorClient := &mockDockerClient{
-		inspectFunc: func(ctx context.Context, containerID string) (container.InspectResponse, error) {
-			return container.InspectResponse{}, context.DeadlineExceeded
-		},
-	}
+	mockErrorClient := &mockDockerClient{}
 	// override container stats method to return error
 	mockErrorClient.statsFunc = func(ctx context.Context, containerID string, stream bool) (container.StatsResponseReader, error) {
 		return container.StatsResponseReader{}, context.DeadlineExceeded

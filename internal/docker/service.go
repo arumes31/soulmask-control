@@ -82,14 +82,17 @@ type UpdateStatus struct {
 }
 
 type Service struct {
-	cli           DockerClient
-	target        string
-	mu            sync.RWMutex
-	updateStatus  UpdateStatus
-	notifier      notification.Notifier
-	pendingCancel context.CancelFunc
-	steamAppID    string
-	latencies     LatencyInfo
+	cli            DockerClient
+	target         string
+	mu             sync.RWMutex
+	updateStatus   UpdateStatus
+	notifier       notification.Notifier
+	pendingCancel  context.CancelFunc
+	httpClient     *http.Client
+	measureFn      func(string) string
+	steamAppID     string
+	latencies      LatencyInfo
+	reconnectDelay time.Duration
 }
 
 func (s *Service) setChecking(checking bool, errStr string) {
@@ -133,14 +136,45 @@ func (s *Service) setPending(pending bool, t time.Time) {
 }
 
 func NewService(target string, notifier notification.Notifier, steamAppID string) (*Service, error) {
-	cli, _ := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		return nil, err
+	}
 	svc := NewServiceWithClient(target, cli, notifier)
 	svc.steamAppID = steamAppID
 	return svc, nil
 }
 
 func NewServiceWithClient(target string, cli DockerClient, notifier notification.Notifier) *Service {
-	return &Service{cli: cli, target: target, notifier: notifier}
+	return &Service{
+		cli:            cli,
+		target:         target,
+		notifier:       notifier,
+		httpClient:     http.DefaultClient,
+		measureFn:      defaultMeasure,
+		reconnectDelay: 5 * time.Second,
+	}
+}
+
+func defaultMeasure(host string) string {
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("ping", "-n", "1", "-w", "2000", host) // #nosec G204
+	} else {
+		cmd = exec.Command("ping", "-c", "1", "-W", "2", host) // #nosec G204
+	}
+
+	start := time.Now()
+	if err := cmd.Run(); err != nil {
+		// Fallback to TCP if ping fails (e.g. missing in container)
+		conn, err := net.DialTimeout("tcp", host+":53", 2*time.Second)
+		if err != nil {
+			return "Err"
+		}
+		_ = conn.Close()
+		return fmt.Sprintf("%dms*", time.Since(start).Milliseconds())
+	}
+	return fmt.Sprintf("%dms", time.Since(start).Milliseconds())
 }
 
 func (s *Service) notify(format string, args ...interface{}) {
@@ -156,38 +190,17 @@ func (s *Service) StartLatencyMonitor(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
-	measure := func(host string) string {
-		var cmd *exec.Cmd
-		if runtime.GOOS == "windows" {
-			cmd = exec.Command("ping", "-n", "1", "-w", "2000", host) // #nosec G204
-		} else {
-			cmd = exec.Command("ping", "-c", "1", "-W", "2", host) // #nosec G204
-		}
-
-		start := time.Now()
-		if err := cmd.Run(); err != nil {
-			// Fallback to TCP if ping fails (e.g. missing in container)
-			conn, err := net.DialTimeout("tcp", host+":53", 2*time.Second)
-			if err != nil {
-				return "Err"
-			}
-			_ = conn.Close()
-			return fmt.Sprintf("%dms*", time.Since(start).Milliseconds())
-		}
-		return fmt.Sprintf("%dms", time.Since(start).Milliseconds())
-	}
-
 	// Initial measure
 	s.mu.Lock()
-	s.latencies.Cloudflare = measure("1.1.1.1")
-	s.latencies.Google = measure("8.8.8.8")
+	s.latencies.Cloudflare = s.measureFn("1.1.1.1")
+	s.latencies.Google = s.measureFn("8.8.8.8")
 	s.mu.Unlock()
 
 	for {
 		select {
 		case <-ticker.C:
-			cf := measure("1.1.1.1")
-			goog := measure("8.8.8.8")
+			cf := s.measureFn("1.1.1.1")
+			goog := s.measureFn("8.8.8.8")
 			s.mu.Lock()
 			s.latencies = LatencyInfo{Cloudflare: cf, Google: goog}
 			s.mu.Unlock()
@@ -208,7 +221,7 @@ func (s *Service) ListenForEvents(ctx context.Context) {
 			if err != nil && err != io.EOF && ctx.Err() == nil {
 				log.Printf("[Events] Error: %v", err)
 				// Reconnect after delay
-				time.Sleep(5 * time.Second)
+				time.Sleep(s.reconnectDelay)
 				msgs, errs = s.cli.Events(ctx, events.ListOptions{})
 			}
 		case msg := <-msgs:
@@ -306,8 +319,7 @@ func (s *Service) fetchNews(ctx context.Context, appID string) (*PatchInfo, erro
 		return nil, err
 	}
 
-	client := http.DefaultClient
-	resp, err := client.Do(req)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		log.Printf("[SteamAPI] Request failed for %s: %v", appID, err)
 		return nil, err
@@ -638,6 +650,7 @@ func (s *Service) PerformUpdate(ctx context.Context, oldInspect container.Inspec
 	return nil
 }
 
+// SetUpdateStatusForTest is a test helper for setting update status.
 func (s *Service) SetUpdateStatusForTest(isPending bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
