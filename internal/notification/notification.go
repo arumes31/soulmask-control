@@ -40,7 +40,7 @@ func (d *DiscordNotifier) Notify(message string) error {
 	}
 	// Remove top level content if using embed for cleaner look, or keep both.
 	// User said "add discord webhook on all events", usually embeds are nicer.
-	delete(payload, "content") 
+	delete(payload, "content")
 
 	body, err := json.Marshal(payload)
 	if err != nil {

@@ -133,19 +133,10 @@ func (s *Service) setPending(pending bool, t time.Time) {
 }
 
 func NewService(target string, notifier notification.Notifier, steamAppID string) (*Service, error) {
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	if err != nil {
-		return nil, fmt.Errorf("failed to create docker client: %w", err)
-	}
-	return &Service{
-		cli:    cli,
-		target: target,
-		updateStatus: UpdateStatus{
-			LastCheck: time.Now(),
-		},
-		notifier:   notifier,
-		steamAppID: steamAppID,
-	}, nil
+	cli, _ := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	svc := NewServiceWithClient(target, cli, notifier)
+	svc.steamAppID = steamAppID
+	return svc, nil
 }
 
 func NewServiceWithClient(target string, cli DockerClient, notifier notification.Notifier) *Service {
@@ -208,7 +199,7 @@ func (s *Service) StartLatencyMonitor(ctx context.Context) {
 
 func (s *Service) ListenForEvents(ctx context.Context) {
 	msgs, errs := s.cli.Events(ctx, events.ListOptions{})
-	
+
 	log.Printf("[Events] Started listening for Docker events on %s", s.target)
 
 	for {
@@ -224,9 +215,11 @@ func (s *Service) ListenForEvents(ctx context.Context) {
 			if msg.Type != events.ContainerEventType {
 				continue
 			}
-			
+
 			// Match by ID or Name (target is name in this app)
-			if msg.Actor.Attributes["name"] != s.target && msg.Actor.ID[:12] != s.target[:12] && msg.Actor.ID != s.target {
+			nameMatch := msg.Actor.Attributes["name"] == s.target
+			idMatch := (len(msg.Actor.ID) >= 12 && len(s.target) >= 12 && msg.Actor.ID[:12] == s.target[:12]) || msg.Actor.ID == s.target
+			if !nameMatch && !idMatch {
 				continue
 			}
 
@@ -292,13 +285,13 @@ func (s *Service) getLatestPatch(ctx context.Context) (*PatchInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Fallback for Soulmask Dedicated Server tool (2886870) to Main Game (2401390)
 	if patch == nil && s.steamAppID == "2886870" {
 		log.Printf("[SteamAPI] No news for tool 2886870, falling back to main game 2401390")
 		return s.fetchNews(ctx, "2401390")
 	}
-	
+
 	return patch, nil
 }
 
@@ -313,7 +306,7 @@ func (s *Service) fetchNews(ctx context.Context, appID string) (*PatchInfo, erro
 		return nil, err
 	}
 
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := http.DefaultClient
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Printf("[SteamAPI] Request failed for %s: %v", appID, err)
@@ -324,10 +317,10 @@ func (s *Service) fetchNews(ctx context.Context, appID string) (*PatchInfo, erro
 	var result struct {
 		AppNews struct {
 			NewsItems []struct {
-				Title    string `json:"title"`
-				URL      string `json:"url"`
-				Date     int64  `json:"date"`
-				Contents string `json:"contents"`
+				Title     string `json:"title"`
+				URL       string `json:"url"`
+				Date      int64  `json:"date"`
+				Contents  string `json:"contents"`
 				FeedLabel string `json:"feedlabel"`
 			} `json:"newsitems"`
 		} `json:"appnews"`
@@ -452,7 +445,7 @@ func (s *Service) PullImage(ctx context.Context, imageRef string) error {
 		if message.Error != "" {
 			return fmt.Errorf("docker pull error: %s", message.Error)
 		}
-		
+
 		s.mu.Lock()
 		if message.Progress != "" {
 			s.updateStatus.Progress = fmt.Sprintf("%s %s", message.Status, message.Progress)
@@ -487,6 +480,9 @@ func (s *Service) CheckAndUpdate(ctx context.Context) (err error) {
 		return fmt.Errorf("inspect failed: %w", err)
 	}
 
+	if inspect.Config.Image == "" {
+		return fmt.Errorf("no image configured")
+	}
 	imageRef := inspect.Config.Image
 	oldImageID := inspect.Image
 
@@ -519,11 +515,11 @@ func (s *Service) CheckAndUpdate(ctx context.Context) (err error) {
 	s.mu.RUnlock()
 
 	log.Printf("[UpdateWorker] Update detected: %s -> %s. Delaying 15m.", oldImageID, newImage.ID)
-	
+
 	pendingUntil := time.Now().Add(15 * time.Minute)
 	s.setPending(true, pendingUntil)
-	
-	s.notify("✨ New version detected for **%s**\n`%s` ➡️ `%s`\n\n🕒 **Update scheduled in 15 minutes.**", 
+
+	s.notify("✨ New version detected for **%s**\n`%s` ➡️ `%s`\n\n🕒 **Update scheduled in 15 minutes.**",
 		s.target, oldImageID[:12], newImage.ID[:12])
 
 	// Create a cancelable context for the pending update
@@ -547,18 +543,18 @@ func (s *Service) CheckAndUpdate(ctx context.Context) (err error) {
 			// Cancelled (either by UpdateNow or another check)
 			return
 		}
-		
+
 		// Perform update with a fresh context
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute) // #nosec G118
 		defer cancel()
-		
+
 		latestInspect, err := s.cli.ContainerInspect(ctx, s.target)
 		if err != nil {
 			s.setPending(false, time.Time{})
 			s.notify("❌ Scheduled update failed for **%s**: could not re-inspect container", s.target)
 			return
 		}
-		
+
 		s.notify("🚀 **Update starting now** for **%s** after 15-minute delay", s.target)
 		if err := s.PerformUpdate(ctx, latestInspect); err != nil {
 			log.Printf("[UpdateWorker] Delayed update failed: %v", err)
@@ -600,39 +596,39 @@ func (s *Service) PerformUpdate(ctx context.Context, oldInspect container.Inspec
 	}()
 
 	log.Printf("[UpdateWorker] Restarting container %s with new image", s.target)
-	
+
 	// 1. Stop
 	s.setUpdating(true, "Stopping container...", "")
 	_ = s.Stop(ctx) // Best effort stop
-	
+
 	// 2. Remove
 	s.setUpdating(true, "Removing old container...", "")
 	if err = s.cli.ContainerRemove(ctx, s.target, container.RemoveOptions{Force: true}); err != nil {
 		return fmt.Errorf("remove failed: %w", err)
 	}
-	
+
 	// 3. Prepare Configuration
 	config := oldInspect.Config
 	hostConfig := oldInspect.HostConfig
-	
+
 	// Sanitize networking to prevent conflicts
 	networkingConfig := &network.NetworkingConfig{
 		EndpointsConfig: oldInspect.NetworkSettings.Networks,
 	}
-	
+
 	// 4. Create
 	s.setUpdating(true, "Recreating container...", "")
 	resp, err := s.cli.ContainerCreate(ctx, config, hostConfig, networkingConfig, nil, s.target)
 	if err != nil {
 		return fmt.Errorf("create failed: %w", err)
 	}
-	
+
 	// 5. Start
 	s.setUpdating(true, "Starting new container...", "")
 	if err = s.cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		return fmt.Errorf("start failed: %w", err)
 	}
-	
+
 	// 6. Cleanup
 	log.Printf("[UpdateWorker] Cleaning up old image %s", oldInspect.Image)
 	_, _ = s.cli.ImageRemove(ctx, oldInspect.Image, image.RemoveOptions{PruneChildren: true})
@@ -640,4 +636,10 @@ func (s *Service) PerformUpdate(ctx context.Context, oldInspect container.Inspec
 	log.Printf("[UpdateWorker] Successfully updated %s", s.target)
 	s.notify("✅ Successfully updated **%s** to new image", s.target)
 	return nil
+}
+
+func (s *Service) SetUpdateStatusForTest(isPending bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.updateStatus.IsPending = isPending
 }
