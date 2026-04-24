@@ -1,0 +1,20 @@
+--- internal/docker/service_test.go
++++ internal/docker/service_test.go
+@@ -176,7 +176,7 @@
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+-		defer reader.Close()
++		defer func() { _ = reader.Close() }()
+
+		buf, _ := io.ReadAll(reader)
+		if string(buf) != "log line" {
+@@ -770,7 +770,7 @@
+
+	// Pending goroutine is sleeping for 15 min.
+	// If we cancel the context, it should return.
+	// Wait, we don't have direct access to cancel it other than UpdateNow, which cancels `pCtx`.
+-	svc.UpdateNow(context.Background())
++	_ = svc.UpdateNow(context.Background())
+
+	// Wait a tiny bit for the goroutine to exit
