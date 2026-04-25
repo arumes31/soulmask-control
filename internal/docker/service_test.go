@@ -99,7 +99,7 @@ func (m *mockDockerClient) Events(ctx context.Context, options events.ListOption
 	}
 	chMsg := make(chan events.Message, 1)
 	chErr := make(chan error, 1)
-	chMsg <- events.Message{Action: "die", Actor: events.Actor{Attributes: map[string]string{"name": "soulmask-server"}}}
+	chMsg <- events.Message{Type: events.ContainerEventType, Action: "die", Actor: events.Actor{Attributes: map[string]string{"name": "soulmask-server"}}}
 	return chMsg, chErr
 }
 
@@ -255,6 +255,7 @@ func TestService(t *testing.T) {
 		if err != nil {
 			t.Errorf("Unexpected error in CheckAndUpdate: %v", err)
 		}
+		_ = svc.UpdateNow(context.Background())
 	})
 
 	t.Run("PerformUpdate", func(t *testing.T) {

@@ -157,6 +157,9 @@ func NewServiceWithClient(target string, cli DockerClient, notifier notification
 }
 
 func defaultMeasure(host string) string {
+	if net.ParseIP(host) == nil {
+		return "Err"
+	}
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
 		cmd = exec.Command("ping", "-n", "1", "-w", "2000", host) // #nosec G204
