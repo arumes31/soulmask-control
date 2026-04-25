@@ -77,4 +77,20 @@ func TestMiddleware(t *testing.T) {
 
 		handlerToTest.ServeHTTP(w, req)
 	})
+
+	t.Run("LoggingMiddleware", func(t *testing.T) {
+		nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+		handlerToTest := LoggingMiddleware(nextHandler)
+
+		req := httptest.NewRequest("GET", "/test-path", nil)
+		w := httptest.NewRecorder()
+
+		handlerToTest.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected status 200, got %d", w.Code)
+		}
+	})
 }

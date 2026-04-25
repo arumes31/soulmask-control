@@ -29,7 +29,6 @@ func (d *DiscordNotifier) Notify(message string) error {
 	}
 
 	payload := map[string]interface{}{
-		"content": message,
 		"embeds": []map[string]interface{}{
 			{
 				"description": message,
@@ -38,9 +37,6 @@ func (d *DiscordNotifier) Notify(message string) error {
 			},
 		},
 	}
-	// Remove top level content if using embed for cleaner look, or keep both.
-	// User said "add discord webhook on all events", usually embeds are nicer.
-	delete(payload, "content") 
 
 	body, err := json.Marshal(payload)
 	if err != nil {

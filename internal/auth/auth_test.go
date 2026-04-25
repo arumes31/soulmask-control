@@ -41,6 +41,17 @@ func TestAuthenticator(t *testing.T) {
 		}
 	})
 
+	t.Run("Login decode error", func(t *testing.T) {
+		req := httptest.NewRequest("POST", "/login", bytes.NewBufferString("invalid json"))
+		w := httptest.NewRecorder()
+
+		auth.LoginHandler(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("Expected status 400, got %d", w.Code)
+		}
+	})
+
 	t.Run("IsAuthenticated", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/", nil)
 		if auth.IsAuthenticated(req) {

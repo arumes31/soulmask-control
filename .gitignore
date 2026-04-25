@@ -3,3 +3,5 @@ soulmask-control
 *.log
 .qodo/
 vendor/
+*.orig
+*.rej

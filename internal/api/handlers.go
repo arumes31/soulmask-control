@@ -9,9 +9,9 @@ import (
 
 	"soulmask-control/internal/docker"
 
+	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-	"github.com/docker/docker/pkg/stdcopy"
 )
 
 type API struct {
@@ -161,4 +161,3 @@ func (a *API) LogsHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[API] Log streaming ended: %v", err)
 	}
 }
-
