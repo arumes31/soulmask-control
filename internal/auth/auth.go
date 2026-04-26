@@ -35,7 +35,7 @@ func (a *Authenticator) LoginHandler(w http.ResponseWriter, r *http.Request) {
 			Path:     "/",
 			HttpOnly: true,
 			Secure:   a.TrustProxy,
-			SameSite: http.SameSiteLaxMode,
+			SameSite: http.SameSiteStrictMode,
 		}
 		http.SetCookie(w, cookie)
 		w.WriteHeader(http.StatusOK)
@@ -53,7 +53,7 @@ func (a *Authenticator) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   -1,
 		HttpOnly: true,
 		Secure:   a.TrustProxy,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 	}
 	http.SetCookie(w, cookie)
 	w.WriteHeader(http.StatusOK)
