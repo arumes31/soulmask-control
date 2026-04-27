@@ -1,4 +1,4 @@
-## 2026-04-25 - [Missing Authentication on API Routes]
-**Vulnerability:** The API subrouter for administrative actions (`/api/action/*`), log streaming (`/api/logs`), and update checks (`/api/check-update`) did not have authentication enforced, allowing any user to start/stop the server or read logs.
-**Learning:** The web routes `/login` and `/logout` had an auth check conceptually, but the `/api` subrouter was completely exposed. This is a severe architectural gap where API requests bypassed the security layer implemented for web access.
-**Prevention:** Always apply authentication middleware at the router level for sensitive subrouters instead of relying on frontend-only protection or per-handler checks. Ensure health check endpoints like `/api/status` are kept out of the authenticated subrouter to avoid breaking liveness probes.
+## 2024-05-23 - [CRITICAL] Plaintext Password in Session Cookie
+**Vulnerability:** The application stored the admin's plaintext password in the `soulmask_session` cookie and used it for authentication verification on subsequent requests.
+**Learning:** This is a severe security flaw that directly exposed credentials to the client. Single-tenant applications must still use proper session management.
+**Prevention:** Always generate a cryptographically secure random session token (e.g., using `crypto/rand`) for session cookies instead of raw credentials. Use constant-time comparisons (`crypto/subtle.ConstantTimeCompare`) to prevent timing attacks.
