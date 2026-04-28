@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 )
@@ -8,13 +10,23 @@ import (
 type Authenticator struct {
 	Password      string
 	SessionCookie string
+	SessionToken  string
 	TrustProxy    bool
+}
+
+func generateToken() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "fallback_token_for_error_handling"
+	}
+	return hex.EncodeToString(b)
 }
 
 func NewAuthenticator(password string, trustProxy bool) *Authenticator {
 	return &Authenticator{
 		Password:      password,
 		SessionCookie: "soulmask_session",
+		SessionToken:  generateToken(),
 		TrustProxy:    trustProxy,
 	}
 }
@@ -31,11 +43,11 @@ func (a *Authenticator) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	if creds.Password == a.Password {
 		cookie := &http.Cookie{ // #nosec G124
 			Name:     a.SessionCookie,
-			Value:    a.Password,
+			Value:    a.SessionToken,
 			Path:     "/",
 			HttpOnly: true,
 			Secure:   a.TrustProxy,
-			SameSite: http.SameSiteLaxMode,
+			SameSite: http.SameSiteStrictMode,
 		}
 		http.SetCookie(w, cookie)
 		w.WriteHeader(http.StatusOK)
@@ -53,7 +65,7 @@ func (a *Authenticator) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   -1,
 		HttpOnly: true,
 		Secure:   a.TrustProxy,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 	}
 	http.SetCookie(w, cookie)
 	w.WriteHeader(http.StatusOK)
@@ -61,5 +73,5 @@ func (a *Authenticator) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 
 func (a *Authenticator) IsAuthenticated(r *http.Request) bool {
 	cookie, err := r.Cookie(a.SessionCookie)
-	return err == nil && cookie.Value == a.Password
+	return err == nil && cookie.Value == a.SessionToken
 }

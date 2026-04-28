@@ -33,7 +33,7 @@ func TestMiddleware(t *testing.T) {
 		handlerToTest := AuthMiddleware(authenticator)(nextHandler)
 
 		req := httptest.NewRequest("GET", "/api/status", nil)
-		req.AddCookie(&http.Cookie{Name: authenticator.SessionCookie, Value: password})
+		req.AddCookie(&http.Cookie{Name: authenticator.SessionCookie, Value: authenticator.SessionToken})
 		w := httptest.NewRecorder()
 
 		handlerToTest.ServeHTTP(w, req)
