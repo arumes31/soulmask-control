@@ -1,19 +1,31 @@
 package auth
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 )
 
 type Authenticator struct {
 	Password      string
+	SessionToken  string
 	SessionCookie string
 	TrustProxy    bool
+}
+
+func generateSecureToken() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(b)
 }
 
 func NewAuthenticator(password string, trustProxy bool) *Authenticator {
 	return &Authenticator{
 		Password:      password,
+		SessionToken:  generateSecureToken(),
 		SessionCookie: "soulmask_session",
 		TrustProxy:    trustProxy,
 	}
@@ -31,7 +43,7 @@ func (a *Authenticator) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	if creds.Password == a.Password {
 		cookie := &http.Cookie{ // #nosec G124
 			Name:     a.SessionCookie,
-			Value:    a.Password,
+			Value:    a.SessionToken,
 			Path:     "/",
 			HttpOnly: true,
 			Secure:   a.TrustProxy,
@@ -61,5 +73,5 @@ func (a *Authenticator) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 
 func (a *Authenticator) IsAuthenticated(r *http.Request) bool {
 	cookie, err := r.Cookie(a.SessionCookie)
-	return err == nil && cookie.Value == a.Password
+	return err == nil && cookie.Value == a.SessionToken
 }
