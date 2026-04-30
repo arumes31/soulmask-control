@@ -1,6 +1,8 @@
 package middleware
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +13,9 @@ import (
 func TestMiddleware(t *testing.T) {
 	password := "testpass"
 	authenticator := auth.NewAuthenticator(password, false)
+
+	h := sha256.Sum256([]byte(password))
+	expectedCookieValue := hex.EncodeToString(h[:])
 
 	t.Run("AuthMiddleware denied", func(t *testing.T) {
 		nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
@@ -33,7 +38,7 @@ func TestMiddleware(t *testing.T) {
 		handlerToTest := AuthMiddleware(authenticator)(nextHandler)
 
 		req := httptest.NewRequest("GET", "/api/status", nil)
-		req.AddCookie(&http.Cookie{Name: authenticator.SessionCookie, Value: password})
+		req.AddCookie(&http.Cookie{Name: authenticator.SessionCookie, Value: expectedCookieValue})
 		w := httptest.NewRecorder()
 
 		handlerToTest.ServeHTTP(w, req)

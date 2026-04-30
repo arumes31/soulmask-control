@@ -1,6 +1,9 @@
 package auth
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 )
@@ -28,10 +31,15 @@ func (a *Authenticator) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if creds.Password == a.Password {
+	// Prevent timing attacks by using ConstantTimeCompare
+	if subtle.ConstantTimeCompare([]byte(creds.Password), []byte(a.Password)) == 1 {
+		// Hash password before storing in cookie to avoid plaintext leakage
+		h := sha256.Sum256([]byte(a.Password))
+		cookieValue := hex.EncodeToString(h[:])
+
 		cookie := &http.Cookie{ // #nosec G124
 			Name:     a.SessionCookie,
-			Value:    a.Password,
+			Value:    cookieValue,
 			Path:     "/",
 			HttpOnly: true,
 			Secure:   a.TrustProxy,
@@ -61,5 +69,12 @@ func (a *Authenticator) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 
 func (a *Authenticator) IsAuthenticated(r *http.Request) bool {
 	cookie, err := r.Cookie(a.SessionCookie)
-	return err == nil && cookie.Value == a.Password
+	if err != nil {
+		return false
+	}
+
+	h := sha256.Sum256([]byte(a.Password))
+	expectedCookieValue := hex.EncodeToString(h[:])
+
+	return subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(expectedCookieValue)) == 1
 }

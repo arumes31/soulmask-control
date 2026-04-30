@@ -2,6 +2,8 @@ package auth
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +13,9 @@ import (
 func TestAuthenticator(t *testing.T) {
 	password := "testpass"
 	auth := NewAuthenticator(password, false)
+
+	h := sha256.Sum256([]byte(password))
+	expectedCookieValue := hex.EncodeToString(h[:])
 
 	t.Run("Login success", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]string{"password": password})
@@ -24,8 +29,8 @@ func TestAuthenticator(t *testing.T) {
 		}
 
 		cookie := w.Result().Cookies()[0]
-		if cookie.Name != auth.SessionCookie || cookie.Value != password {
-			t.Error("Cookie not set correctly")
+		if cookie.Name != auth.SessionCookie || cookie.Value != expectedCookieValue {
+			t.Errorf("Cookie not set correctly, expected %s got %s", expectedCookieValue, cookie.Value)
 		}
 	})
 
@@ -58,7 +63,7 @@ func TestAuthenticator(t *testing.T) {
 			t.Error("Should not be authenticated without cookie")
 		}
 
-		req.AddCookie(&http.Cookie{Name: auth.SessionCookie, Value: password})
+		req.AddCookie(&http.Cookie{Name: auth.SessionCookie, Value: expectedCookieValue})
 		if !auth.IsAuthenticated(req) {
 			t.Error("Should be authenticated with correct cookie")
 		}
