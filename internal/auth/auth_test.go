@@ -24,7 +24,7 @@ func TestAuthenticator(t *testing.T) {
 		}
 
 		cookie := w.Result().Cookies()[0]
-		if cookie.Name != auth.SessionCookie || cookie.Value != password {
+		if cookie.Name != auth.SessionCookie || cookie.Value != auth.SessionToken {
 			t.Error("Cookie not set correctly")
 		}
 	})
@@ -58,7 +58,7 @@ func TestAuthenticator(t *testing.T) {
 			t.Error("Should not be authenticated without cookie")
 		}
 
-		req.AddCookie(&http.Cookie{Name: auth.SessionCookie, Value: password})
+		req.AddCookie(&http.Cookie{Name: auth.SessionCookie, Value: auth.SessionToken})
 		if !auth.IsAuthenticated(req) {
 			t.Error("Should be authenticated with correct cookie")
 		}
