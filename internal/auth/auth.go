@@ -1,19 +1,32 @@
 package auth
 
 import (
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
+	"log"
 	"net/http"
 )
 
 type Authenticator struct {
 	Password      string
+	SessionToken  string
 	SessionCookie string
 	TrustProxy    bool
 }
 
 func NewAuthenticator(password string, trustProxy bool) *Authenticator {
+	// Generate a secure random session token on startup
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		log.Fatalf("Failed to generate session token: %v", err)
+	}
+	sessionToken := base64.URLEncoding.EncodeToString(tokenBytes)
+
 	return &Authenticator{
 		Password:      password,
+		SessionToken:  sessionToken,
 		SessionCookie: "soulmask_session",
 		TrustProxy:    trustProxy,
 	}
@@ -28,10 +41,11 @@ func (a *Authenticator) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if creds.Password == a.Password {
+	// Use ConstantTimeCompare to mitigate timing attacks
+	if subtle.ConstantTimeCompare([]byte(creds.Password), []byte(a.Password)) == 1 {
 		cookie := &http.Cookie{ // #nosec G124
 			Name:     a.SessionCookie,
-			Value:    a.Password,
+			Value:    a.SessionToken,
 			Path:     "/",
 			HttpOnly: true,
 			Secure:   a.TrustProxy,
@@ -61,5 +75,8 @@ func (a *Authenticator) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 
 func (a *Authenticator) IsAuthenticated(r *http.Request) bool {
 	cookie, err := r.Cookie(a.SessionCookie)
-	return err == nil && cookie.Value == a.Password
+	if err != nil {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(a.SessionToken)) == 1
 }
