@@ -50,16 +50,30 @@ func NewAPI(docker *docker.Service, allowedOrigins []string) *API {
 		docker:         docker,
 		allowedOrigins: allowedOrigins,
 	}
-	a.upgrader = websocket.Upgrader{
-		CheckOrigin: a.checkOrigin,
+
+	hasOrigins := false
+	if len(allowedOrigins) > 0 {
+		for _, o := range allowedOrigins {
+			if o != "" {
+				hasOrigins = true
+				break
+			}
+		}
 	}
+
+	if hasOrigins {
+		a.upgrader = websocket.Upgrader{
+			CheckOrigin: a.checkOrigin,
+		}
+	} else {
+		// Leave CheckOrigin nil to use the safe default
+		a.upgrader = websocket.Upgrader{}
+	}
+
 	return a
 }
 
 func (a *API) checkOrigin(r *http.Request) bool {
-	if len(a.allowedOrigins) == 0 || (len(a.allowedOrigins) == 1 && a.allowedOrigins[0] == "") {
-		return true
-	}
 	origin := r.Header.Get("Origin")
 	for _, allowed := range a.allowedOrigins {
 		if origin == allowed {

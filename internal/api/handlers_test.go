@@ -228,9 +228,10 @@ func TestAPIHandlers(t *testing.T) {
 			t.Error("Expected origin check to fail")
 		}
 
+		// Now we expect CheckOrigin to be nil for empty origins, so the test should assert that instead.
 		apiEmpty := NewAPI(svc, []string{})
-		if !apiEmpty.checkOrigin(req) {
-			t.Error("Expected origin check to pass for empty origins")
+		if apiEmpty.upgrader.CheckOrigin != nil {
+			t.Error("Expected CheckOrigin to be nil when no origins are provided")
 		}
 	})
 
