@@ -6,7 +6,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
+	"sync"
+	"time"
 )
 
 type Authenticator struct {
@@ -14,6 +17,10 @@ type Authenticator struct {
 	SessionToken  string
 	SessionCookie string
 	TrustProxy    bool
+
+	mu       sync.Mutex
+	attempts map[string]int
+	lastSeen map[string]time.Time
 }
 
 func NewAuthenticator(password string, trustProxy bool) *Authenticator {
@@ -29,10 +36,43 @@ func NewAuthenticator(password string, trustProxy bool) *Authenticator {
 		SessionToken:  sessionToken,
 		SessionCookie: "soulmask_session",
 		TrustProxy:    trustProxy,
+		attempts:      make(map[string]int),
+		lastSeen:      make(map[string]time.Time),
 	}
 }
 
 func (a *Authenticator) LoginHandler(w http.ResponseWriter, r *http.Request) {
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		ip = r.RemoteAddr
+	}
+
+	a.mu.Lock()
+	now := time.Now()
+
+	// Basic cleanup to prevent memory leak
+	if len(a.attempts) > 1000 {
+		for k, v := range a.lastSeen {
+			if now.Sub(v) > 15*time.Minute {
+				delete(a.attempts, k)
+				delete(a.lastSeen, k)
+			}
+		}
+	}
+
+	if now.Sub(a.lastSeen[ip]) > 15*time.Minute {
+		a.attempts[ip] = 0
+	}
+
+	if a.attempts[ip] >= 5 {
+		a.mu.Unlock()
+		http.Error(w, "Too many login attempts", http.StatusTooManyRequests)
+		return
+	}
+	a.lastSeen[ip] = now
+	a.attempts[ip]++ // Increment early to prevent TOCTOU concurrent brute force
+	a.mu.Unlock()
+
 	var creds struct {
 		Password string `json:"password"`
 	}
@@ -43,6 +83,11 @@ func (a *Authenticator) LoginHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Use ConstantTimeCompare to mitigate timing attacks
 	if subtle.ConstantTimeCompare([]byte(creds.Password), []byte(a.Password)) == 1 {
+		a.mu.Lock()
+		delete(a.attempts, ip)
+		delete(a.lastSeen, ip)
+		a.mu.Unlock()
+
 		cookie := &http.Cookie{ // #nosec G124
 			Name:     a.SessionCookie,
 			Value:    a.SessionToken,
