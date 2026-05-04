@@ -15,6 +15,7 @@ func TestAuthenticator(t *testing.T) {
 	t.Run("Login success", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]string{"password": password})
 		req := httptest.NewRequest("POST", "/login", bytes.NewBuffer(body))
+		req.RemoteAddr = "192.168.1.1:12345"
 		w := httptest.NewRecorder()
 
 		auth.LoginHandler(w, req)
@@ -32,6 +33,7 @@ func TestAuthenticator(t *testing.T) {
 	t.Run("Login failure", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]string{"password": "wrong"})
 		req := httptest.NewRequest("POST", "/login", bytes.NewBuffer(body))
+		req.RemoteAddr = "192.168.1.1:12346" // Different IP to avoid rate limit from previous test
 		w := httptest.NewRecorder()
 
 		auth.LoginHandler(w, req)
@@ -43,6 +45,7 @@ func TestAuthenticator(t *testing.T) {
 
 	t.Run("Login decode error", func(t *testing.T) {
 		req := httptest.NewRequest("POST", "/login", bytes.NewBufferString("invalid json"))
+		req.RemoteAddr = "192.168.1.1:12347" // Different IP
 		w := httptest.NewRecorder()
 
 		auth.LoginHandler(w, req)
@@ -64,6 +67,29 @@ func TestAuthenticator(t *testing.T) {
 		}
 	})
 
+	t.Run("Rate limit", func(t *testing.T) {
+		auth_rate := NewAuthenticator(password, false)
+
+		for i := 0; i < 5; i++ {
+			body, _ := json.Marshal(map[string]string{"password": "wrong"})
+			req := httptest.NewRequest("POST", "/login", bytes.NewBuffer(body))
+			req.RemoteAddr = "10.0.0.1:54321" // Consistent IP
+			w := httptest.NewRecorder()
+
+			auth_rate.LoginHandler(w, req)
+
+			if i < 3 {
+				if w.Code != http.StatusUnauthorized {
+					t.Errorf("Expected status 401 for request %d, got %d", i, w.Code)
+				}
+			} else {
+				if w.Code != http.StatusTooManyRequests {
+					t.Errorf("Expected status 429 for request %d, got %d", i, w.Code)
+				}
+			}
+		}
+	})
+
 	t.Run("Logout", func(t *testing.T) {
 		req := httptest.NewRequest("POST", "/logout", nil)
 		w := httptest.NewRecorder()
@@ -79,4 +105,23 @@ func TestAuthenticator(t *testing.T) {
 			t.Error("Cookie should be expired on logout")
 		}
 	})
+}
+
+func TestTrustProxy(t *testing.T) {
+	authProxy := NewAuthenticator("testpass", true)
+
+	req1 := httptest.NewRequest("POST", "/login", nil)
+	req1.RemoteAddr = "10.0.0.1:1234"
+	req1.Header.Set("X-Forwarded-For", "192.168.1.100, 10.0.0.1")
+
+	w1 := httptest.NewRecorder()
+	authProxy.LoginHandler(w1, req1)
+
+	authProxy.mu.Lock()
+	_, exists := authProxy.limiters["192.168.1.100"]
+	authProxy.mu.Unlock()
+
+	if !exists {
+		t.Error("Limiter should be created for X-Forwarded-For IP")
+	}
 }
