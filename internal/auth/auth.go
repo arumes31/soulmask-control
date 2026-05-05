@@ -6,14 +6,26 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
+	"sync"
+	"time"
+
+	"golang.org/x/time/rate"
 )
+
+type clientLimiter struct {
+	limiter  *rate.Limiter
+	lastSeen time.Time
+}
 
 type Authenticator struct {
 	Password      string
 	SessionToken  string
 	SessionCookie string
 	TrustProxy    bool
+	mu            sync.Mutex
+	limiters      map[string]*clientLimiter
 }
 
 func NewAuthenticator(password string, trustProxy bool) *Authenticator {
@@ -24,15 +36,60 @@ func NewAuthenticator(password string, trustProxy bool) *Authenticator {
 	}
 	sessionToken := base64.URLEncoding.EncodeToString(tokenBytes)
 
-	return &Authenticator{
+	a := &Authenticator{
 		Password:      password,
 		SessionToken:  sessionToken,
 		SessionCookie: "soulmask_session",
 		TrustProxy:    trustProxy,
+		limiters:      make(map[string]*clientLimiter),
+	}
+
+	// Start cleanup routine for old limiters
+	go a.cleanupLimiters()
+
+	return a
+}
+
+func (a *Authenticator) cleanupLimiters() {
+	for {
+		time.Sleep(10 * time.Minute)
+		a.mu.Lock()
+		for ip, cl := range a.limiters {
+			if time.Since(cl.lastSeen) > 10*time.Minute {
+				delete(a.limiters, ip)
+			}
+		}
+		a.mu.Unlock()
 	}
 }
 
+func (a *Authenticator) getLimiter(ip string) *rate.Limiter {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	cl, exists := a.limiters[ip]
+	if !exists {
+		limiter := rate.NewLimiter(rate.Every(10*time.Second), 5)
+		cl = &clientLimiter{limiter: limiter, lastSeen: time.Now()}
+		a.limiters[ip] = cl
+	} else {
+		cl.lastSeen = time.Now()
+	}
+
+	return cl.limiter
+}
+
 func (a *Authenticator) LoginHandler(w http.ResponseWriter, r *http.Request) {
+	// middleware IPMiddleware handles TrustProxy and sets r.RemoteAddr
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		ip = r.RemoteAddr
+	}
+	if !a.getLimiter(ip).Allow() {
+		http.Error(w, "Too many requests", http.StatusTooManyRequests)
+		return
+	}
+
 	var creds struct {
 		Password string `json:"password"`
 	}

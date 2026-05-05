@@ -79,4 +79,25 @@ func TestAuthenticator(t *testing.T) {
 			t.Error("Cookie should be expired on logout")
 		}
 	})
+
+	t.Run("Rate limit login", func(t *testing.T) {
+		reqBody := `{"password": "wrong"}`
+		for i := 0; i < 5; i++ {
+			req := httptest.NewRequest("POST", "/login", bytes.NewBufferString(reqBody))
+			req.RemoteAddr = "192.168.1.1:1234"
+			w := httptest.NewRecorder()
+			auth.LoginHandler(w, req)
+			if w.Code != http.StatusUnauthorized {
+				t.Errorf("Expected status 401 on attempt %d, got %d", i+1, w.Code)
+			}
+		}
+
+		req := httptest.NewRequest("POST", "/login", bytes.NewBufferString(reqBody))
+		req.RemoteAddr = "192.168.1.1:1234"
+		w := httptest.NewRecorder()
+		auth.LoginHandler(w, req)
+		if w.Code != http.StatusTooManyRequests {
+			t.Errorf("Expected status 429 on attempt 6, got %d", w.Code)
+		}
+	})
 }
