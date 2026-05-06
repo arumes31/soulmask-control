@@ -6,7 +6,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
+	"sync"
+	"time"
 )
 
 type Authenticator struct {
@@ -14,6 +17,8 @@ type Authenticator struct {
 	SessionToken  string
 	SessionCookie string
 	TrustProxy    bool
+	mu            sync.Mutex
+	loginAttempts map[string]time.Time
 }
 
 func NewAuthenticator(password string, trustProxy bool) *Authenticator {
@@ -24,15 +29,50 @@ func NewAuthenticator(password string, trustProxy bool) *Authenticator {
 	}
 	sessionToken := base64.URLEncoding.EncodeToString(tokenBytes)
 
-	return &Authenticator{
+	auth := &Authenticator{
 		Password:      password,
 		SessionToken:  sessionToken,
 		SessionCookie: "soulmask_session",
 		TrustProxy:    trustProxy,
+		loginAttempts: make(map[string]time.Time),
 	}
+
+	// Basic cleanup for rate limiting map to prevent memory leak
+	go func() {
+		for {
+			time.Sleep(1 * time.Minute)
+			auth.mu.Lock()
+			now := time.Now()
+			for ip, t := range auth.loginAttempts {
+				if now.Sub(t) > 5*time.Second {
+					delete(auth.loginAttempts, ip)
+				}
+			}
+			auth.mu.Unlock()
+		}
+	}()
+
+	return auth
 }
 
 func (a *Authenticator) LoginHandler(w http.ResponseWriter, r *http.Request) {
+	// Rate Limiting Logic
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		ip = r.RemoteAddr
+	}
+
+	a.mu.Lock()
+	lastAttempt, exists := a.loginAttempts[ip]
+	if exists && time.Since(lastAttempt) < 2*time.Second {
+		a.loginAttempts[ip] = time.Now() // Update to prevent spamming from keeping it blocked indefinitely
+		a.mu.Unlock()
+		http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+		return
+	}
+	a.loginAttempts[ip] = time.Now()
+	a.mu.Unlock()
+
 	var creds struct {
 		Password string `json:"password"`
 	}

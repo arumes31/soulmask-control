@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestAuthenticator(t *testing.T) {
@@ -34,6 +35,8 @@ func TestAuthenticator(t *testing.T) {
 		req := httptest.NewRequest("POST", "/login", bytes.NewBuffer(body))
 		w := httptest.NewRecorder()
 
+		// Sleep to avoid rate limiting
+		time.Sleep(2 * time.Second)
 		auth.LoginHandler(w, req)
 
 		if w.Code != http.StatusUnauthorized {
@@ -45,6 +48,8 @@ func TestAuthenticator(t *testing.T) {
 		req := httptest.NewRequest("POST", "/login", bytes.NewBufferString("invalid json"))
 		w := httptest.NewRecorder()
 
+		// Sleep to avoid rate limiting
+		time.Sleep(2 * time.Second)
 		auth.LoginHandler(w, req)
 
 		if w.Code != http.StatusBadRequest {
