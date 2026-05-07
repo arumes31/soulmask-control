@@ -229,8 +229,8 @@ func TestAPIHandlers(t *testing.T) {
 		}
 
 		apiEmpty := NewAPI(svc, []string{})
-		if !apiEmpty.checkOrigin(req) {
-			t.Error("Expected origin check to pass for empty origins")
+		if apiEmpty.checkOrigin(req) {
+			t.Error("Expected origin check to fail for empty origins as a defensive measure")
 		}
 	})
 
