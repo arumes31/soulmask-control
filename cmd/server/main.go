@@ -67,10 +67,10 @@ func main() {
 
 	// API Subrouter
 	apiRouter := r.PathPrefix("/api").Subrouter()
-	apiRouter.HandleFunc("/status", apiServer.StatusHandler).Methods("GET")
 
 	authApiRouter := apiRouter.NewRoute().Subrouter()
 	authApiRouter.Use(middleware.AuthMiddleware(authenticator))
+	authApiRouter.HandleFunc("/status", apiServer.StatusHandler).Methods("GET")
 	authApiRouter.HandleFunc("/action/{action}", apiServer.ActionHandler).Methods("POST")
 	authApiRouter.HandleFunc("/logs", apiServer.LogsHandler)
 	authApiRouter.HandleFunc("/check-update", apiServer.CheckUpdateHandler).Methods("POST")
