@@ -152,6 +152,13 @@ func setupWebRoutes(r *mux.Router, auth *auth.Authenticator) {
 			http.ServeFile(w, r, "./static/login.html")
 			return
 		}
+
+		// Rate limit login attempts
+		if !middleware.LoginRateLimitAllow(r.RemoteAddr) {
+			http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+			return
+		}
+
 		auth.LoginHandler(w, r)
 	}).Methods(http.MethodGet, http.MethodPost)
 
