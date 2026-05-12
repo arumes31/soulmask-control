@@ -43,12 +43,39 @@ func TestAuthenticator(t *testing.T) {
 
 	t.Run("Login decode error", func(t *testing.T) {
 		req := httptest.NewRequest("POST", "/login", bytes.NewBufferString("invalid json"))
+		req.RemoteAddr = "127.0.0.1:12345"
 		w := httptest.NewRecorder()
 
 		auth.LoginHandler(w, req)
 
 		if w.Code != http.StatusBadRequest {
 			t.Errorf("Expected status 400, got %d", w.Code)
+		}
+	})
+
+	t.Run("Login rate limiting", func(t *testing.T) {
+		authRL := NewAuthenticator(password, false)
+		body, _ := json.Marshal(map[string]string{"password": "wrong"})
+
+		for i := 0; i < 5; i++ {
+			req := httptest.NewRequest("POST", "/login", bytes.NewBuffer(body))
+			req.RemoteAddr = "192.168.1.100:12345"
+			w := httptest.NewRecorder()
+			authRL.LoginHandler(w, req)
+
+			if w.Code != http.StatusUnauthorized {
+				t.Errorf("Expected status 401 on attempt %d, got %d", i+1, w.Code)
+			}
+		}
+
+		// 6th attempt should be rate limited
+		req := httptest.NewRequest("POST", "/login", bytes.NewBuffer(body))
+		req.RemoteAddr = "192.168.1.100:12345"
+		w := httptest.NewRecorder()
+		authRL.LoginHandler(w, req)
+
+		if w.Code != http.StatusTooManyRequests {
+			t.Errorf("Expected status 429, got %d", w.Code)
 		}
 	})
 
