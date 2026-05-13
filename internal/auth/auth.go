@@ -6,7 +6,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
+	"sync"
+	"time"
 )
 
 type Authenticator struct {
@@ -14,6 +17,11 @@ type Authenticator struct {
 	SessionToken  string
 	SessionCookie string
 	TrustProxy    bool
+
+	// Rate limiting state
+	mu       sync.Mutex
+	attempts map[string]int
+	lastSeen map[string]time.Time
 }
 
 func NewAuthenticator(password string, trustProxy bool) *Authenticator {
@@ -29,10 +37,41 @@ func NewAuthenticator(password string, trustProxy bool) *Authenticator {
 		SessionToken:  sessionToken,
 		SessionCookie: "soulmask_session",
 		TrustProxy:    trustProxy,
+		attempts:      make(map[string]int),
+		lastSeen:      make(map[string]time.Time),
 	}
 }
 
+func (a *Authenticator) checkRateLimit(ip string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	now := time.Now()
+	if last, ok := a.lastSeen[ip]; ok {
+		if now.Sub(last) > 5*time.Minute {
+			a.attempts[ip] = 0 // Reset after 5 minutes
+		}
+	}
+
+	a.lastSeen[ip] = now
+	a.attempts[ip]++
+
+	return a.attempts[ip] <= 5
+}
+
 func (a *Authenticator) LoginHandler(w http.ResponseWriter, r *http.Request) {
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		ip = r.RemoteAddr
+	}
+
+	if !a.checkRateLimit(ip) {
+		http.Error(w, "Too many login attempts", http.StatusTooManyRequests)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 1024)
+
 	var creds struct {
 		Password string `json:"password"`
 	}
@@ -53,6 +92,11 @@ func (a *Authenticator) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		http.SetCookie(w, cookie)
 		w.WriteHeader(http.StatusOK)
+
+		// Reset rate limit on success
+		a.mu.Lock()
+		delete(a.attempts, ip)
+		a.mu.Unlock()
 		return
 	}
 
