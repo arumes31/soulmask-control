@@ -6,14 +6,25 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
+	"sync"
+	"time"
 )
+
+type rateLimit struct {
+	attempts int
+	lastSeen time.Time
+}
 
 type Authenticator struct {
 	Password      string
 	SessionToken  string
 	SessionCookie string
 	TrustProxy    bool
+
+	mu      sync.Mutex
+	clients map[string]*rateLimit
 }
 
 func NewAuthenticator(password string, trustProxy bool) *Authenticator {
@@ -29,10 +40,36 @@ func NewAuthenticator(password string, trustProxy bool) *Authenticator {
 		SessionToken:  sessionToken,
 		SessionCookie: "soulmask_session",
 		TrustProxy:    trustProxy,
+		clients:       make(map[string]*rateLimit),
 	}
 }
 
 func (a *Authenticator) LoginHandler(w http.ResponseWriter, r *http.Request) {
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		ip = r.RemoteAddr
+	}
+
+	a.mu.Lock()
+	limit, exists := a.clients[ip]
+	if !exists {
+		limit = &rateLimit{}
+		a.clients[ip] = limit
+	}
+
+	// Reset if older than 15 minutes
+	if time.Since(limit.lastSeen) > 15*time.Minute {
+		limit.attempts = 0
+	}
+	limit.lastSeen = time.Now()
+
+	if limit.attempts >= 5 {
+		a.mu.Unlock()
+		http.Error(w, "Too many requests", http.StatusTooManyRequests)
+		return
+	}
+	a.mu.Unlock()
+
 	var creds struct {
 		Password string `json:"password"`
 	}
@@ -43,6 +80,10 @@ func (a *Authenticator) LoginHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Use ConstantTimeCompare to mitigate timing attacks
 	if subtle.ConstantTimeCompare([]byte(creds.Password), []byte(a.Password)) == 1 {
+		a.mu.Lock()
+		limit.attempts = 0
+		a.mu.Unlock()
+
 		cookie := &http.Cookie{ // #nosec G124
 			Name:     a.SessionCookie,
 			Value:    a.SessionToken,
@@ -55,6 +96,10 @@ func (a *Authenticator) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
+
+	a.mu.Lock()
+	limit.attempts++
+	a.mu.Unlock()
 
 	http.Error(w, "Unauthorized", http.StatusUnauthorized)
 }
