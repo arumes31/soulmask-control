@@ -143,7 +143,7 @@ func getEnv(key, fallback string) string {
 }
 
 func setupWebRoutes(r *mux.Router, auth *auth.Authenticator) {
-	r.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
+	loginHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			if auth.IsAuthenticated(r) {
 				http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -153,7 +153,9 @@ func setupWebRoutes(r *mux.Router, auth *auth.Authenticator) {
 			return
 		}
 		auth.LoginHandler(w, r)
-	}).Methods(http.MethodGet, http.MethodPost)
+	})
+
+	r.Handle("/login", middleware.RateLimitMiddleware(loginHandler)).Methods(http.MethodGet, http.MethodPost)
 
 	r.HandleFunc("/logout", auth.LogoutHandler).Methods(http.MethodPost)
 
