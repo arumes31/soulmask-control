@@ -1,3 +1,8 @@
+## 2026-05-19 - [Hardcoded Default Admin Password]
+**Vulnerability:** The application used a hardcoded default password (`admin`) if the `ADMIN_PASSWORD` environment variable was not set. This could allow attackers to gain unauthorized access to the control panel if administrators failed to explicitly configure a strong password before deployment.
+**Learning:** Default credentials are a common security pitfall. Attackers often scan for exposed applications using default credentials. It is crucial to ensure that systems fall back to a secure state (e.g., auto-generated random passwords or refusing to start) rather than a known insecure state.
+**Prevention:** Never use easily guessable or hardcoded default passwords. If a password must be provided, either force the user to set it or generate a strong, random password automatically on startup and log it securely for the administrator to retrieve.
+
 ## 2026-04-25 - [Missing Authentication on API Routes]
 **Vulnerability:** The API subrouter for administrative actions (`/api/action/*`), log streaming (`/api/logs`), and update checks (`/api/check-update`) did not have authentication enforced, allowing any user to start/stop the server or read logs.
 **Learning:** The web routes `/login` and `/logout` had an auth check conceptually, but the `/api` subrouter was completely exposed. This is a severe architectural gap where API requests bypassed the security layer implemented for web access.
