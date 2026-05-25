@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"log"
 	"net/http"
 	"os"
@@ -124,9 +126,22 @@ func loadConfig() Config {
 		port = ":" + port
 	}
 
+	adminPassword := os.Getenv("ADMIN_PASSWORD")
+	if adminPassword == "" {
+		bytes := make([]byte, 16)
+		if _, err := rand.Read(bytes); err != nil {
+			log.Fatalf("Failed to generate random password: %v", err)
+		}
+		adminPassword = hex.EncodeToString(bytes)
+		log.Printf("================================================================================")
+		log.Printf("ADMIN_PASSWORD not set. Automatically generated a secure random admin password.")
+		log.Printf("Password: %s", adminPassword)
+		log.Printf("================================================================================")
+	}
+
 	return Config{
 		TargetContainer: getEnv("TARGET_CONTAINER", "soulmask-server"),
-		AdminPassword:   getEnv("ADMIN_PASSWORD", "admin"),
+		AdminPassword:   adminPassword,
 		TrustProxy:      os.Getenv("TRUST_PROXY") == "true",
 		AllowedOrigins:  strings.Split(os.Getenv("ALLOWED_ORIGINS"), ","),
 		Port:            port,
