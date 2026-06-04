@@ -50,16 +50,24 @@ func NewAPI(docker *docker.Service, allowedOrigins []string) *API {
 		docker:         docker,
 		allowedOrigins: allowedOrigins,
 	}
-	a.upgrader = websocket.Upgrader{
-		CheckOrigin: a.checkOrigin,
+	// When no explicit origins are configured, fall back to gorilla's default
+	// same-origin policy (nil CheckOrigin). Supplying a permissive custom check
+	// that allowed every origin would expose the log WebSocket to Cross-Site
+	// WebSocket Hijacking (CSWSH).
+	if len(allowedOrigins) == 0 || (len(allowedOrigins) == 1 && allowedOrigins[0] == "") {
+		a.upgrader = websocket.Upgrader{}
+	} else {
+		a.upgrader = websocket.Upgrader{
+			CheckOrigin: a.checkOrigin,
+		}
 	}
 	return a
 }
 
+// checkOrigin allows a WebSocket handshake only when the request Origin matches
+// one of the explicitly configured allowed origins. It is wired up solely when
+// allowedOrigins is non-empty; otherwise the default same-origin policy applies.
 func (a *API) checkOrigin(r *http.Request) bool {
-	if len(a.allowedOrigins) == 0 || (len(a.allowedOrigins) == 1 && a.allowedOrigins[0] == "") {
-		return true
-	}
 	origin := r.Header.Get("Origin")
 	for _, allowed := range a.allowedOrigins {
 		if origin == allowed {
