@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"log"
 	"net/http"
 	"os"
@@ -67,10 +69,13 @@ func main() {
 
 	// API Subrouter
 	apiRouter := r.PathPrefix("/api").Subrouter()
-	apiRouter.HandleFunc("/status", apiServer.StatusHandler).Methods("GET")
 
+	// All API endpoints require authentication. /status is included because it
+	// exposes sensitive container details (ID, image, CPU/memory stats) and
+	// must not be reachable by unauthenticated clients.
 	authApiRouter := apiRouter.NewRoute().Subrouter()
 	authApiRouter.Use(middleware.AuthMiddleware(authenticator))
+	authApiRouter.HandleFunc("/status", apiServer.StatusHandler).Methods("GET")
 	authApiRouter.HandleFunc("/action/{action}", apiServer.ActionHandler).Methods("POST")
 	authApiRouter.HandleFunc("/logs", apiServer.LogsHandler)
 	authApiRouter.HandleFunc("/check-update", apiServer.CheckUpdateHandler).Methods("POST")
@@ -126,13 +131,42 @@ func loadConfig() Config {
 
 	return Config{
 		TargetContainer: getEnv("TARGET_CONTAINER", "soulmask-server"),
-		AdminPassword:   getEnv("ADMIN_PASSWORD", "admin"),
+		AdminPassword:   resolveAdminPassword(),
 		TrustProxy:      os.Getenv("TRUST_PROXY") == "true",
 		AllowedOrigins:  strings.Split(os.Getenv("ALLOWED_ORIGINS"), ","),
 		Port:            port,
 		DiscordWebhook:  os.Getenv("DISCORD_WEBHOOK_URL"),
 		SteamAppID:      getEnv("STEAM_APP_ID", "2886870"),
 	}
+}
+
+// resolveAdminPassword returns the operator-supplied ADMIN_PASSWORD, or, when
+// none is set, a freshly generated cryptographically-secure password that is
+// surfaced once on startup. This enforces a secure-by-default posture: the
+// application never falls back to a guessable static credential.
+func resolveAdminPassword() string {
+	if pw := os.Getenv("ADMIN_PASSWORD"); pw != "" {
+		return pw
+	}
+
+	pw := generateAdminPassword()
+	log.Printf("ADMIN_PASSWORD not set; generated a secure random admin password "+
+		"for this session (set ADMIN_PASSWORD to persist it):\n"+
+		"================================================================\n"+
+		"  Admin password: %s\n"+
+		"================================================================", pw)
+	return pw
+}
+
+// generateAdminPassword produces a 128-bit cryptographically-random password,
+// hex-encoded. A failure of the system CSPRNG is unrecoverable and must abort
+// startup rather than silently weaken authentication.
+func generateAdminPassword() string {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		log.Fatalf("[Main] Failed to generate admin password: %v", err)
+	}
+	return hex.EncodeToString(buf)
 }
 
 func getEnv(key, fallback string) string {
@@ -152,6 +186,14 @@ func setupWebRoutes(r *mux.Router, auth *auth.Authenticator) {
 			http.ServeFile(w, r, "./static/login.html")
 			return
 		}
+
+		// Throttle credential submissions per client IP to blunt brute-force
+		// and credential-stuffing attacks against the shared admin secret.
+		if !middleware.LoginRateLimitAllow(r.RemoteAddr) {
+			http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+			return
+		}
+
 		auth.LoginHandler(w, r)
 	}).Methods(http.MethodGet, http.MethodPost)
 
